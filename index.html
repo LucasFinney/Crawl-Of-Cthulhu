@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Crawl of Cthulhu — A Roguelike</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #0a0a0f;
+  color: #b0b0b0;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+}
+#game-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+#title-bar {
+  color: #6a0dad;
+  font-size: 14px;
+  margin-bottom: 4px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 8px #6a0dad66;
+}
+#stats-bar {
+  display: flex;
+  gap: 20px;
+  font-size: 13px;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  background: #111118;
+  border: 1px solid #222;
+  min-width: 100%;
+  justify-content: center;
+}
+.stat { white-space: nowrap; }
+.stat-hp { color: #cc3333; }
+.stat-san { color: #9b59b6; }
+.stat-atk { color: #e67e22; }
+.stat-def { color: #3498db; }
+.stat-dlvl { color: #888; }
+.stat-xp { color: #f1c40f; }
+.stat-gold { color: #f39c12; }
+
+#display {
+  font-size: 15px;
+  line-height: 1.15;
+  letter-spacing: 1px;
+  white-space: pre;
+  background: #0d0d14;
+  border: 1px solid #1a1a2e;
+  padding: 4px;
+  box-shadow: 0 0 20px #0005, inset 0 0 30px #06001a22;
+}
+#message-log {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #111118;
+  border: 1px solid #222;
+  font-size: 12px;
+  min-height: 60px;
+  max-height: 60px;
+  overflow-y: auto;
+  min-width: 100%;
+  color: #888;
+}
+#message-log .msg-danger { color: #cc3333; }
+#message-log .msg-warning { color: #e67e22; }
+#message-log .msg-good { color: #2ecc71; }
+#message-log .msg-sanity { color: #9b59b6; }
+#message-log .msg-lore { color: #6a0dad; }
+#message-log .msg-info { color: #888; }
+
+#help-bar {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #555;
+}
+
+/* Overlay screens */
+.overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #0a0a0fee;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+.overlay-content {
+  font-family: 'Courier New', monospace;
+  white-space: pre;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #b0b0b0;
+  text-align: center;
+  max-width: 700px;
+}
+.overlay-content .title {
+  color: #6a0dad;
+  text-shadow: 0 0 10px #6a0dad88;
+}
+.overlay-content .subtitle { color: #9b59b6; }
+.overlay-content .key { color: #e67e22; }
+.overlay-content .danger { color: #cc3333; }
+</style>
+</head>
+<body>
+<div id="game-container">
+  <div id="title-bar">☽ CRAWL OF CTHULHU ☽</div>
+  <div id="stats-bar"></div>
+  <div id="display"></div>
+  <div id="message-log"></div>
+  <div id="help-bar">[←↑↓→/WASD/Numpad] Move · [R/T] Turn · [G] Pick up · [I] Inventory · [L] Look · [>] Descend · [?] Help · [.] Wait</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CRAWL OF CTHULHU — A Cthulhu Mythos Roguelike Prototype
+// ═══════════════════════════════════════════════════════════════
+
+const WIDTH = 80;
+const HEIGHT = 40;
+const FOV_RADIUS = 10;
+const MAX_ROOMS = 12;
+const ROOM_MIN = 5;
+const ROOM_MAX = 12;
+
+// ── Tile types ──────────────────────────────────────────────
+const TILE = {
+  VOID: 0, FLOOR: 1, WALL: 2, CORRIDOR: 3, DOOR_CLOSED: 4,
+  STAIRS_DOWN: 5, ALTAR: 6, WATER: 7, DOOR_OPEN: 8
+};
+
+const TILE_DISPLAY = {
+  [TILE.VOID]:        { ch: ' ', fg: '#111' },
+  [TILE.FLOOR]:       { ch: '.', fg: '#3a3a4a' },
+  [TILE.WALL]:        { ch: '#', fg: '#5a5a6e' },
+  [TILE.CORRIDOR]:    { ch: '.', fg: '#33334a' },
+  [TILE.DOOR_CLOSED]: { ch: '+', fg: '#8B6914' },
+  [TILE.DOOR_OPEN]:   { ch: '/', fg: '#8B6914' },
+  [TILE.STAIRS_DOWN]: { ch: '>', fg: '#eeeeee' },
+  [TILE.ALTAR]:       { ch: '_', fg: '#9b59b6' },
+  [TILE.WATER]:       { ch: '~', fg: '#1a5276' },
+};
+
+// ── Monster definitions ─────────────────────────────────────
+const MONSTER_DEFS = {
+  rat: {
+    name: 'sewer rat', ch: 'r', fg: '#8B6914',
+    hp: 4, atk: 1, def: 0, xp: 2, speed: 1,
+    sanCost: 0, desc: 'A mangy sewer rat.',
+    minLevel: 1
+  },
+  cultist: {
+    name: 'cultist', ch: 'c', fg: '#cc3333',
+    hp: 8, atk: 3, def: 1, xp: 5, speed: 1,
+    sanCost: 1, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
+    minLevel: 1
+  },
+  ghoul: {
+    name: 'ghoul', ch: 'g', fg: '#6B8E23',
+    hp: 14, atk: 5, def: 2, xp: 10, speed: 1,
+    sanCost: 3, desc: 'A hunched, dog-faced corpse-eater.',
+    minLevel: 2
+  },
+  deepOne: {
+    name: 'deep one', ch: 'D', fg: '#1abc9c',
+    hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
+    sanCost: 5, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
+    minLevel: 3
+  },
+  miGo: {
+    name: 'mi-go', ch: 'M', fg: '#e74c3c',
+    hp: 18, atk: 6, def: 2, xp: 20, speed: 2,
+    sanCost: 7, desc: 'A fungoid crustacean from Yuggoth.',
+    minLevel: 4
+  },
+  nightgaunt: {
+    name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
+    hp: 25, atk: 8, def: 4, xp: 30, speed: 1,
+    sanCost: 8, desc: 'A faceless, rubbery, horned flyer.',
+    minLevel: 5
+  },
+  dimensionalShambler: {
+    name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
+    hp: 35, atk: 10, def: 5, xp: 45, speed: 1,
+    sanCost: 10, desc: 'It lurches between planes of existence.',
+    minLevel: 6
+  },
+  starSpawn: {
+    name: 'star spawn', ch: 'X', fg: '#6a0dad',
+    hp: 50, atk: 14, def: 7, xp: 80, speed: 1,
+    sanCost: 15, desc: 'A towering mass of tentacles and malice.',
+    minLevel: 7
+  },
+  shoggoth: {
+    name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
+    hp: 80, atk: 18, def: 8, xp: 150, speed: 1,
+    sanCost: 20, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
+    minLevel: 8
+  }
+};
+
+// ── Item definitions ────────────────────────────────────────
+const ITEM_DEFS = {
+  healingHerb: {
+    name: 'healing herb', ch: '!', fg: '#2ecc71', type: 'consumable',
+    desc: 'A pungent herb that restores vitality.',
+    use(player) { const h = rng(8,16); player.hp = Math.min(player.maxHp, player.hp + h); return `You consume the herb and recover ${h} HP.`; }
+  },
+  laudanum: {
+    name: 'laudanum', ch: '!', fg: '#9b59b6', type: 'consumable',
+    desc: 'An opiate tincture that steadies the mind.',
+    use(player) { const s = rng(5,12); player.sanity = Math.min(player.maxSanity, player.sanity + s); return `The laudanum soothes your mind. +${s} Sanity.`; }
+  },
+  elderSign: {
+    name: 'Elder Sign', ch: '*', fg: '#f1c40f', type: 'consumable',
+    desc: 'A star-shaped carving of unearthly geometry.',
+    use(player) {
+      // Damage all visible monsters
+      let count = 0;
+      for (const m of state.monsters) {
+        if (m.hp > 0 && state.visible[m.y * WIDTH + m.x]) {
+          m.hp -= rng(15, 30);
+          count++;
+        }
+      }
+      state.monsters = state.monsters.filter(m => m.hp > 0);
+      return count > 0 ? `The Elder Sign blazes with light! ${count} abomination(s) seared!` : 'The Elder Sign glows faintly but finds no target.';
+    }
+  },
+  revolver: {
+    name: 'worn revolver', ch: ')', fg: '#aaa', type: 'weapon',
+    atk: 3, desc: 'A battered .38 revolver. +3 ATK.'
+  },
+  sacrificialDagger: {
+    name: 'sacrificial dagger', ch: ')', fg: '#cc3333', type: 'weapon',
+    atk: 5, desc: 'A wavy-bladed kris stained with old blood. +5 ATK.'
+  },
+  eldrithchBlade: {
+    name: 'eldritch blade', ch: ')', fg: '#9b59b6', type: 'weapon',
+    atk: 8, desc: 'The blade hums with otherworldly resonance. +8 ATK.'
+  },
+  leatherCoat: {
+    name: 'leather coat', ch: '[', fg: '#8B6914', type: 'armor',
+    def: 2, desc: 'A thick leather duster. +2 DEF.'
+  },
+  chainmail: {
+    name: 'eldritch mail', ch: '[', fg: '#7f8c8d', type: 'armor',
+    def: 5, desc: 'Chain links forged from meteoric iron. +5 DEF.'
+  },
+  necronomicon: {
+    name: 'Necronomicon page', ch: '?', fg: '#6a0dad', type: 'consumable',
+    desc: 'A loose page from the dread tome. Reading it may grant power... or madness.',
+    use(player) {
+      if (rng(1,3) === 1) {
+        const loss = rng(5,15);
+        player.sanity -= loss;
+        return `The forbidden words claw at your mind! -${loss} Sanity!`;
+      } else {
+        const gain = rng(20,50);
+        player.xp += gain;
+        return `Eldritch knowledge floods your consciousness. +${gain} XP!`;
+      }
+    }
+  },
+  gold: {
+    name: 'gold coins', ch: '$', fg: '#f1c40f', type: 'gold',
+    desc: 'Tarnished coins of unknown provenance.'
+  }
+};
+
+// ── Sanity event table ──────────────────────────────────────
+const SANITY_EVENTS = [
+  { threshold: 60, msg: 'The shadows seem to shift when you look away...', type: 'msg-sanity' },
+  { threshold: 40, msg: 'You hear whispers in a language older than mankind.', type: 'msg-sanity' },
+  { threshold: 25, msg: 'The walls are breathing. They are BREATHING.', type: 'msg-danger' },
+  { threshold: 10, msg: 'Something vast and incomprehensible watches you from behind the stars.', type: 'msg-danger' },
+];
+
+// ── Utility ─────────────────────────────────────────────────
+function rng(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function dist(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
+
+// ── Direction system ────────────────────────────────────────
+// 8 directions: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
+const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
+const DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1];
+const DIR_ANGLES = []; // radians for each direction
+for (let i = 0; i < 8; i++) DIR_ANGLES[i] = Math.atan2(DIR_DY[i], DIR_DX[i]);
+
+// Player glyphs per facing direction
+const FACING_GLYPHS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+
+function dirFromDelta(dx, dy) {
+  for (let i = 0; i < 8; i++) {
+    if (DIR_DX[i] === dx && DIR_DY[i] === dy) return i;
+  }
+  return 2; // default east
+}
+
+function rotateFacing(current, amount) {
+  return ((current + amount) % 8 + 8) % 8;
+}
+
+// Angle difference, normalized to [-PI, PI]
+function angleDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  return d;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  GAME STATE
+// ═══════════════════════════════════════════════════════════════
+let state = {};
+
+function initState() {
+  state = {
+    map: new Uint8Array(WIDTH * HEIGHT),
+    visible: new Uint8Array(WIDTH * HEIGHT),
+    explored: new Uint8Array(WIDTH * HEIGHT),
+    rooms: [],
+    monsters: [],
+    items: [],
+    player: {
+      x: 0, y: 0,
+      facing: 2, // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW (start facing east/right)
+      hp: 30, maxHp: 30,
+      sanity: 100, maxSanity: 100,
+      atk: 2, def: 0,
+      baseAtk: 2, baseDef: 0,
+      xp: 0, level: 1, xpNext: 15,
+      gold: 0,
+      inventory: [],
+      weapon: null,
+      armor: null,
+      turnCount: 0,
+    },
+    dlevel: 1,
+    messages: [],
+    gameOver: false,
+    showInventory: false,
+    showHelp: false,
+    lookMode: false,
+    lookX: 0,
+    lookY: 0,
+    lastSanityEvent: 100,
+    turn: 0,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DUNGEON GENERATION
+// ═══════════════════════════════════════════════════════════════
+function floodFill(startX, startY) {
+  const visited = new Uint8Array(WIDTH * HEIGHT);
+  const queue = [[startX, startY]];
+  visited[startY * WIDTH + startX] = 1;
+  while (queue.length > 0) {
+    const [x, y] = queue.shift();
+    for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || nx >= WIDTH || ny < 0 || ny >= HEIGHT) continue;
+      const idx = ny * WIDTH + nx;
+      if (visited[idx]) continue;
+      const tile = state.map[idx];
+      if (tile === TILE.FLOOR || tile === TILE.CORRIDOR || tile === TILE.DOOR_CLOSED
+          || tile === TILE.DOOR_OPEN || tile === TILE.STAIRS_DOWN || tile === TILE.ALTAR || tile === TILE.WATER) {
+        visited[idx] = 1;
+        queue.push([nx, ny]);
+      }
+    }
+  }
+  return visited;
+}
+
+function generateLevel() {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    generateLevelInner();
+    // Validate: player must be able to reach the stairs
+    const reachable = floodFill(state.player.x, state.player.y);
+    const stairsIdx = state.map.indexOf(TILE.STAIRS_DOWN);
+    if (stairsIdx !== -1 && reachable[stairsIdx]) return; // Level is good
+  }
+  // Fallback: if all attempts fail, just use the last generated level
+  // (fix #1 should make this essentially unreachable)
+}
+
+function generateLevelInner() {
+  state.map.fill(TILE.VOID);
+  state.visible.fill(0);
+  state.explored.fill(0);
+  state.rooms = [];
+  state.monsters = [];
+  state.items = [];
+  state.lastSanityEvent = state.player.sanity;
+
+  // Place rooms
+  for (let attempt = 0; attempt < 150; attempt++) {
+    const w = rng(ROOM_MIN, ROOM_MAX);
+    const h = rng(ROOM_MIN, ROOM_MAX);
+    const x = rng(1, WIDTH - w - 2);
+    const y = rng(1, HEIGHT - h - 2);
+
+    // Check overlap
+    let overlap = false;
+    for (const r of state.rooms) {
+      if (x < r.x + r.w + 1 && x + w + 1 > r.x && y < r.y + r.h + 1 && y + h + 1 > r.y) {
+        overlap = true; break;
+      }
+    }
+    if (overlap) continue;
+
+    state.rooms.push({ x, y, w, h, cx: Math.floor(x + w/2), cy: Math.floor(y + h/2) });
+    if (state.rooms.length >= MAX_ROOMS) break;
+  }
+
+  // Carve rooms
+  for (const r of state.rooms) {
+    for (let ry = r.y; ry < r.y + r.h; ry++) {
+      for (let rx = r.x; rx < r.x + r.w; rx++) {
+        state.map[ry * WIDTH + rx] = TILE.FLOOR;
+      }
+    }
+    // Walls around room
+    for (let ry = r.y - 1; ry <= r.y + r.h; ry++) {
+      for (let rx = r.x - 1; rx <= r.x + r.w; rx++) {
+        if (rx >= 0 && rx < WIDTH && ry >= 0 && ry < HEIGHT) {
+          if (state.map[ry * WIDTH + rx] === TILE.VOID) {
+            state.map[ry * WIDTH + rx] = TILE.WALL;
+          }
+        }
+      }
+    }
+  }
+
+  // Connect rooms with corridors
+  for (let i = 1; i < state.rooms.length; i++) {
+    const a = state.rooms[i - 1];
+    const b = state.rooms[i];
+    carveCorridor(a.cx, a.cy, b.cx, b.cy);
+  }
+
+  // Post-pass: place doors where corridors enter rooms (doorframe pattern)
+  for (let y = 1; y < HEIGHT - 1; y++) {
+    for (let x = 1; x < WIDTH - 1; x++) {
+      if (state.map[y * WIDTH + x] !== TILE.CORRIDOR) continue;
+      // Check if any 4-neighbor is a room floor
+      let adjFloor = false;
+      for (const [dx, dy] of [[0,-1],[0,1],[-1,0],[1,0]]) {
+        if (state.map[(y+dy) * WIDTH + (x+dx)] === TILE.FLOOR) { adjFloor = true; break; }
+      }
+      if (!adjFloor) continue;
+      // Only place a door if there are walls on two opposite sides (forming a doorframe)
+      const tN = state.map[(y-1) * WIDTH + x];
+      const tS = state.map[(y+1) * WIDTH + x];
+      const tW = state.map[y * WIDTH + (x-1)];
+      const tE = state.map[y * WIDTH + (x+1)];
+      const isWall = t => t === TILE.WALL;
+      if ((isWall(tN) && isWall(tS)) || (isWall(tW) && isWall(tE))) {
+        state.map[y * WIDTH + x] = TILE.DOOR_CLOSED;
+      }
+    }
+  }
+
+  // Place player in first room
+  const startRoom = state.rooms[0];
+  state.player.x = startRoom.cx;
+  state.player.y = startRoom.cy;
+
+  // Place stairs in last room
+  const endRoom = state.rooms[state.rooms.length - 1];
+  state.map[endRoom.cy * WIDTH + endRoom.cx] = TILE.STAIRS_DOWN;
+
+  // Place altar in a random middle room
+  if (state.rooms.length > 2) {
+    const altarRoom = state.rooms[rng(1, state.rooms.length - 2)];
+    const ax = rng(altarRoom.x + 1, altarRoom.x + altarRoom.w - 2);
+    const ay = rng(altarRoom.y + 1, altarRoom.y + altarRoom.h - 2);
+    state.map[ay * WIDTH + ax] = TILE.ALTAR;
+  }
+
+  // Scatter water pools
+  for (let i = 0; i < rng(0, 3); i++) {
+    const room = pick(state.rooms);
+    const wx = rng(room.x + 1, room.x + room.w - 2);
+    const wy = rng(room.y + 1, room.y + room.h - 2);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = wx + dx, ny = wy + dy;
+        if (state.map[ny * WIDTH + nx] === TILE.FLOOR && Math.random() < 0.5) {
+          state.map[ny * WIDTH + nx] = TILE.WATER;
+        }
+      }
+    }
+  }
+
+  // Spawn monsters
+  spawnMonsters();
+
+  // Spawn items
+  spawnItems();
+}
+
+function carveCorridor(x1, y1, x2, y2) {
+  let x = x1, y = y1;
+  while (x !== x2) {
+    if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+      if (state.map[y * WIDTH + x] === TILE.VOID || state.map[y * WIDTH + x] === TILE.WALL) {
+        state.map[y * WIDTH + x] = TILE.CORRIDOR;
+      }
+      // Walls around corridor
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT) {
+            if (state.map[ny * WIDTH + nx] === TILE.VOID) {
+              state.map[ny * WIDTH + nx] = TILE.WALL;
+            }
+          }
+        }
+      }
+    }
+    x += (x2 > x) ? 1 : -1;
+  }
+  while (y !== y2) {
+    if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) {
+      if (state.map[y * WIDTH + x] === TILE.VOID || state.map[y * WIDTH + x] === TILE.WALL) {
+        state.map[y * WIDTH + x] = TILE.CORRIDOR;
+      }
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT) {
+            if (state.map[ny * WIDTH + nx] === TILE.VOID) {
+              state.map[ny * WIDTH + nx] = TILE.WALL;
+            }
+          }
+        }
+      }
+    }
+    y += (y2 > y) ? 1 : -1;
+  }
+}
+
+function spawnMonsters() {
+  const count = rng(4, 7) + state.dlevel;
+  for (let i = 0; i < count; i++) {
+    // Pick eligible monster types for current dungeon level
+    const eligible = Object.values(MONSTER_DEFS).filter(d => d.minLevel <= state.dlevel);
+    // Weight toward level-appropriate monsters
+    const weights = eligible.map(d => {
+      const diff = state.dlevel - d.minLevel;
+      return diff <= 2 ? 3 : 1;
+    });
+    const totalW = weights.reduce((a, b) => a + b, 0);
+    let roll = Math.random() * totalW;
+    let def = eligible[0];
+    for (let j = 0; j < eligible.length; j++) {
+      roll -= weights[j];
+      if (roll <= 0) { def = eligible[j]; break; }
+    }
+
+    const room = state.rooms[rng(1, state.rooms.length - 1)]; // Not first room
+    const mx = rng(room.x + 1, room.x + room.w - 2);
+    const my = rng(room.y + 1, room.y + room.h - 2);
+
+    // Scale stats with dungeon level
+    const scale = 1 + (state.dlevel - def.minLevel) * 0.1;
+    state.monsters.push({
+      ...def,
+      x: mx, y: my,
+      hp: Math.floor(def.hp * scale),
+      maxHp: Math.floor(def.hp * scale),
+      atk: Math.floor(def.atk * scale),
+      def: Math.floor(def.def * scale),
+      awake: false,
+    });
+  }
+}
+
+function spawnItems() {
+  // Spawn gold in most rooms
+  for (let i = 1; i < state.rooms.length; i++) {
+    if (Math.random() < 0.6) {
+      const room = state.rooms[i];
+      state.items.push({
+        ...ITEM_DEFS.gold,
+        x: rng(room.x + 1, room.x + room.w - 2),
+        y: rng(room.y + 1, room.y + room.h - 2),
+        amount: rng(5, 15) * state.dlevel,
+      });
+    }
+  }
+
+  // Spawn consumables
+  const consumableKeys = ['healingHerb', 'laudanum', 'necronomicon'];
+  const numConsumables = rng(2, 4);
+  for (let i = 0; i < numConsumables; i++) {
+    const room = pick(state.rooms.slice(1));
+    const key = pick(consumableKeys);
+    state.items.push({
+      ...ITEM_DEFS[key],
+      x: rng(room.x + 1, room.x + room.w - 2),
+      y: rng(room.y + 1, room.y + room.h - 2),
+    });
+  }
+
+  // Spawn elder sign rarely
+  if (Math.random() < 0.15 + state.dlevel * 0.03) {
+    const room = pick(state.rooms.slice(1));
+    state.items.push({
+      ...ITEM_DEFS.elderSign,
+      x: rng(room.x + 1, room.x + room.w - 2),
+      y: rng(room.y + 1, room.y + room.h - 2),
+    });
+  }
+
+  // Spawn weapon/armor based on dungeon level
+  if (Math.random() < 0.4) {
+    const room = pick(state.rooms.slice(1));
+    let weaponKey = 'revolver';
+    if (state.dlevel >= 5) weaponKey = pick(['revolver', 'sacrificialDagger', 'eldrithchBlade']);
+    else if (state.dlevel >= 3) weaponKey = pick(['revolver', 'sacrificialDagger']);
+    state.items.push({
+      ...ITEM_DEFS[weaponKey],
+      x: rng(room.x + 1, room.x + room.w - 2),
+      y: rng(room.y + 1, room.y + room.h - 2),
+    });
+  }
+
+  if (Math.random() < 0.3) {
+    const room = pick(state.rooms.slice(1));
+    const armorKey = state.dlevel >= 4 ? pick(['leatherCoat', 'chainmail']) : 'leatherCoat';
+    state.items.push({
+      ...ITEM_DEFS[armorKey],
+      x: rng(room.x + 1, room.x + room.w - 2),
+      y: rng(room.y + 1, room.y + room.h - 2),
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  FIELD OF VIEW (Directional cone + peripheral)
+// ═══════════════════════════════════════════════════════════════
+const CONE_HALF_ANGLE = Math.PI / 3;   // 60° each side = 120° forward cone
+const PERIPHERAL_RADIUS = 3;           // small radius behind/beside you
+const FOV_FRONT_RADIUS = FOV_RADIUS;   // full range forward
+
+function computeFOV() {
+  state.visible.fill(0);
+  const px = state.player.x, py = state.player.y;
+  state.visible[py * WIDTH + px] = 1;
+  state.explored[py * WIDTH + px] = 1;
+
+  const facingAngle = DIR_ANGLES[state.player.facing];
+
+  // Cast rays in all directions
+  const numRays = 720;
+  for (let i = 0; i < numRays; i++) {
+    const rayAngle = (i / numRays) * Math.PI * 2;
+    const diff = Math.abs(angleDiff(rayAngle, facingAngle));
+    const inCone = diff <= CONE_HALF_ANGLE;
+    const maxRange = inCone ? FOV_FRONT_RADIUS : PERIPHERAL_RADIUS;
+
+    const dx = Math.cos(rayAngle);
+    const dy = Math.sin(rayAngle);
+    let x = px + 0.5, y = py + 0.5;
+    for (let step = 0; step < maxRange; step++) {
+      x += dx; y += dy;
+      const ix = Math.floor(x), iy = Math.floor(y);
+      if (ix < 0 || ix >= WIDTH || iy < 0 || iy >= HEIGHT) break;
+      const idx = iy * WIDTH + ix;
+      state.visible[idx] = 1;
+      state.explored[idx] = 1;
+      if (state.map[idx] === TILE.WALL || state.map[idx] === TILE.DOOR_CLOSED) break;
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  RENDERING
+// ═══════════════════════════════════════════════════════════════
+const TILE_DESCRIPTIONS = {
+  [TILE.VOID]: 'Impenetrable darkness.',
+  [TILE.FLOOR]: 'A stone floor.',
+  [TILE.WALL]: 'A rough stone wall.',
+  [TILE.CORRIDOR]: 'A narrow corridor.',
+  [TILE.DOOR_CLOSED]: 'A closed wooden door.',
+  [TILE.DOOR_OPEN]: 'An open doorway.',
+  [TILE.STAIRS_DOWN]: 'A staircase descending into deeper darkness.',
+  [TILE.ALTAR]: 'A dark altar carved with eldritch symbols.',
+  [TILE.WATER]: 'A pool of dark, stagnant water.',
+};
+
+function describeTile(x, y) {
+  const idx = y * WIDTH + x;
+  const visible = state.visible[idx];
+  const explored = state.explored[idx];
+
+  if (!visible && !explored) return 'You cannot see this area.';
+
+  // Player
+  if (x === state.player.x && y === state.player.y) {
+    const dirNames = ['north','northeast','east','southeast','south','southwest','west','northwest'];
+    return `You — a lone investigator, facing ${dirNames[state.player.facing]}.`;
+  }
+
+  if (visible) {
+    // Monster
+    const monster = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
+    if (monster) return `${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`;
+
+    // Item
+    const item = state.items.find(it => it.x === x && it.y === y);
+    if (item) {
+      if (item.type === 'gold') return `${item.name} — ${item.amount} coins.`;
+      return `${item.name} — ${item.desc}`;
+    }
+  }
+
+  // Terrain (visible or explored)
+  const tile = state.map[idx];
+  if (!visible && explored) return `(remembered) ${TILE_DESCRIPTIONS[tile] || 'Unknown.'}`;
+  return TILE_DESCRIPTIONS[tile] || 'Unknown.';
+}
+
+function render() {
+  computeFOV();
+
+  const display = document.getElementById('display');
+  let html = '';
+
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      const idx = y * WIDTH + x;
+      const visible = state.visible[idx];
+      const explored = state.explored[idx];
+
+      // Look cursor (rendered on top of everything)
+      if (state.lookMode && x === state.lookX && y === state.lookY) {
+        // Determine what character to show under the cursor
+        let ch = ' ', fg = '#fff';
+        if (x === state.player.x && y === state.player.y) {
+          ch = FACING_GLYPHS[state.player.facing]; fg = '#f1c40f';
+        } else if (visible) {
+          const m = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
+          if (m) { ch = m.ch; fg = m.fg; }
+          else {
+            const it = state.items.find(it => it.x === x && it.y === y);
+            if (it) { ch = it.ch; fg = it.fg; }
+            else { const td = TILE_DISPLAY[state.map[idx]]; ch = td.ch; fg = td.fg; }
+          }
+        } else if (explored) {
+          const td = TILE_DISPLAY[state.map[idx]]; ch = td.ch; fg = td.fg;
+        }
+        html += `<span style="color:${fg};background:#333;font-weight:bold">${ch}</span>`;
+        continue;
+      }
+
+      // Player
+      if (x === state.player.x && y === state.player.y) {
+        const glyph = FACING_GLYPHS[state.player.facing];
+        html += `<span style="color:#f1c40f;font-weight:bold">${glyph}</span>`;
+        continue;
+      }
+
+      // Monsters (only if visible)
+      if (visible) {
+        const monster = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
+        if (monster) {
+          html += `<span style="color:${monster.fg};font-weight:bold">${monster.ch}</span>`;
+          continue;
+        }
+      }
+
+      // Items (only if visible)
+      if (visible) {
+        const item = state.items.find(it => it.x === x && it.y === y);
+        if (item) {
+          html += `<span style="color:${item.fg}">${item.ch}</span>`;
+          continue;
+        }
+      }
+
+      // Terrain
+      if (visible) {
+        const tile = state.map[idx];
+        const td = TILE_DISPLAY[tile];
+        html += `<span style="color:${td.fg}">${td.ch}</span>`;
+      } else if (explored) {
+        const tile = state.map[idx];
+        const td = TILE_DISPLAY[tile];
+        // Dim explored tiles
+        html += `<span style="color:#1a1a28">${td.ch}</span>`;
+      } else {
+        html += ' ';
+      }
+    }
+    if (y < HEIGHT - 1) html += '\n';
+  }
+
+  display.innerHTML = html;
+  renderStats();
+  renderMessages();
+
+  // Show look mode description in message log
+  if (state.lookMode) {
+    const desc = describeTile(state.lookX, state.lookY);
+    const log = document.getElementById('message-log');
+    log.innerHTML += `<div class="msg-lore">[Look] ${desc}</div>`;
+    log.scrollTop = log.scrollHeight;
+  }
+}
+
+function renderStats() {
+  const p = state.player;
+  const bar = document.getElementById('stats-bar');
+  bar.innerHTML = `
+    <span class="stat stat-hp">HP: ${p.hp}/${p.maxHp}</span>
+    <span class="stat stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>
+    <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
+    <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
+    <span class="stat stat-xp">Lv${p.level} XP: ${p.xp}/${p.xpNext}</span>
+    <span class="stat stat-gold">Gold: ${p.gold}</span>
+    <span class="stat stat-dlvl">Depth: ${state.dlevel}</span>
+    <span class="stat stat-dlvl">T: ${state.turn}</span>
+  `;
+}
+
+function renderMessages() {
+  const log = document.getElementById('message-log');
+  const msgs = state.messages.slice(-20);
+  log.innerHTML = msgs.map(m => `<div class="${m.type || 'msg-info'}">${m.text}</div>`).join('');
+  log.scrollTop = log.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MESSAGE SYSTEM
+// ═══════════════════════════════════════════════════════════════
+function addMsg(text, type = 'msg-info') {
+  state.messages.push({ text, type });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  COMBAT
+// ═══════════════════════════════════════════════════════════════
+function meleeAttack(attacker, defender, attackerName, defenderName) {
+  const rawDmg = Math.max(1, attacker.atk - defender.def + rng(-1, 2));
+  const dmg = Math.max(0, rawDmg);
+  defender.hp -= dmg;
+
+  if (dmg > 0) {
+    const hitVerb = attackerName === 'You' ? 'hit' : 'hits';
+    addMsg(`${attackerName} ${hitVerb} ${defenderName} for ${dmg} damage!`, 'msg-danger');
+  } else {
+    const atkVerb = attackerName === 'You' ? 'attack' : 'attacks';
+    addMsg(`${attackerName} ${atkVerb} ${defenderName} but deals no damage.`, 'msg-warning');
+  }
+
+  return dmg;
+}
+
+function playerAttackMonster(monster) {
+  meleeAttack(state.player, monster, 'You', `the ${monster.name}`);
+
+  if (monster.hp <= 0) {
+    addMsg(`The ${monster.name} is destroyed!`, 'msg-good');
+    state.player.xp += monster.xp;
+    checkLevelUp();
+  }
+}
+
+function monsterAttackPlayer(monster) {
+  meleeAttack(monster, state.player, `The ${monster.name}`, 'you');
+
+  // Sanity damage from eldritch monsters
+  if (monster.sanCost > 0 && Math.random() < 0.3) {
+    const sanLoss = rng(1, monster.sanCost);
+    state.player.sanity -= sanLoss;
+    addMsg(`The sight of the ${monster.name} erodes your sanity! -${sanLoss} SAN`, 'msg-sanity');
+  }
+
+  if (state.player.hp <= 0) {
+    addMsg(`You have been slain by the ${monster.name}!`, 'msg-danger');
+    state.gameOver = true;
+  }
+  if (state.player.sanity <= 0) {
+    addMsg('Your mind shatters into a thousand screaming fragments!', 'msg-danger');
+    addMsg('GAME OVER — Lost to madness.', 'msg-danger');
+    state.gameOver = true;
+  }
+}
+
+function checkLevelUp() {
+  const p = state.player;
+  while (p.xp >= p.xpNext) {
+    p.xp -= p.xpNext;
+    p.level++;
+    p.xpNext = Math.floor(p.xpNext * 1.6);
+    p.maxHp += rng(3, 6);
+    p.hp = Math.min(p.hp + rng(5, 10), p.maxHp);
+    p.baseAtk += 1;
+    p.baseDef += (p.level % 2 === 0) ? 1 : 0;
+    recalcStats();
+    addMsg(`*** LEVEL UP! You are now level ${p.level}! ***`, 'msg-good');
+  }
+}
+
+function recalcStats() {
+  const p = state.player;
+  p.atk = p.baseAtk + (p.weapon ? p.weapon.atk : 0);
+  p.def = p.baseDef + (p.armor ? p.armor.def : 0);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MONSTER AI
+// ═══════════════════════════════════════════════════════════════
+function isPassable(x, y) {
+  if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return false;
+  const tile = state.map[y * WIDTH + x];
+  return tile === TILE.FLOOR || tile === TILE.CORRIDOR || tile === TILE.DOOR_OPEN
+      || tile === TILE.STAIRS_DOWN || tile === TILE.ALTAR || tile === TILE.WATER;
+}
+
+function monsterTurn(monster) {
+  if (monster.hp <= 0) return;
+
+  const px = state.player.x, py = state.player.y;
+  const d = dist(monster.x, monster.y, px, py);
+
+  // Wake up if player is visible and close
+  if (!monster.awake && state.visible[monster.y * WIDTH + monster.x] && d < FOV_RADIUS) {
+    monster.awake = true;
+    if (monster.sanCost > 0) {
+      addMsg(`A ${monster.name} emerges from the darkness!`, 'msg-warning');
+    }
+  }
+
+  if (!monster.awake) return;
+
+  // Adjacent? Attack
+  if (Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1) {
+    monsterAttackPlayer(monster);
+    return;
+  }
+
+  // Move toward player (simple pathfinding)
+  let bestDx = 0, bestDy = 0, bestDist = d;
+  for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+    const nx = monster.x + dx, ny = monster.y + dy;
+    if (!isPassable(nx, ny)) continue;
+    // Don't walk into other monsters
+    if (state.monsters.some(m => m !== monster && m.hp > 0 && m.x === nx && m.y === ny)) continue;
+    const nd = dist(nx, ny, px, py);
+    if (nd < bestDist) {
+      bestDist = nd;
+      bestDx = dx;
+      bestDy = dy;
+    }
+  }
+  monster.x += bestDx;
+  monster.y += bestDy;
+}
+
+function processMonsters() {
+  for (const monster of state.monsters) {
+    if (monster.hp > 0) {
+      monsterTurn(monster);
+      // Fast monsters get another turn
+      if (monster.speed > 1 && monster.awake) {
+        monsterTurn(monster);
+      }
+    }
+  }
+  state.monsters = state.monsters.filter(m => m.hp > 0);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SANITY CHECKS
+// ═══════════════════════════════════════════════════════════════
+function checkSanityEvents() {
+  const san = state.player.sanity;
+  for (const evt of SANITY_EVENTS) {
+    if (san <= evt.threshold && state.lastSanityEvent > evt.threshold) {
+      addMsg(evt.msg, evt.type);
+    }
+  }
+  state.lastSanityEvent = san;
+
+  // Random hallucination at low sanity
+  if (san < 30 && Math.random() < 0.05) {
+    addMsg(pick([
+      'The floor writhes with invisible worms.',
+      'You smell something sweet and rotten.',
+      'For a moment, your hands seem to have too many fingers.',
+      'The darkness hums a lullaby in an alien tongue.',
+      'You feel certain you have been here before. Exactly here. Forever.',
+    ]), 'msg-sanity');
+  }
+
+  // Ambient sanity decay — spooky events
+  // Base chance ~4%, scaling up with depth; something happens roughly every 15-25 turns
+  const spookyChance = 0.04 + state.dlevel * 0.008;
+  if (Math.random() < spookyChance) {
+    const sanLoss = rng(1, 1 + Math.floor(state.dlevel / 3));
+    state.player.sanity = Math.max(0, state.player.sanity - sanLoss);
+    const events = [
+      'A cold draft carries the scent of brine and decay.',
+      'You hear wet footsteps echoing from somewhere... above you?',
+      'The walls glisten with a mucus-like sheen that wasn\'t there before.',
+      'A distant, rhythmic chanting pulses at the edge of hearing.',
+      'Your lantern flickers. Something moved in the dark.',
+      'You find scratches in the stone: "THEY SEE THROUGH THE WALLS".',
+      'A pipe organ drones from deep below — a single, sustained note.',
+      'The corridor behind you looks... different. Longer.',
+      'You step in something wet. You refuse to look down.',
+      'A rat scurries past, then stops and turns to stare at you.',
+      'The air tastes of copper and ozone.',
+      'Somewhere, a door slams. There are no doors nearby.',
+      'Your shadow does not move when you do. Then it catches up.',
+      'The stone beneath your feet is warm. It pulses.',
+      'You hear your own voice whispering from the next room.',
+      'A droplet of something dark falls from the ceiling onto your hand.',
+      'The geometry of this passage is subtly, nauseatingly wrong.',
+      'You blink and the room seems to have shifted a few inches to the left.',
+    ];
+    addMsg(pick(events) + (sanLoss > 1 ? ` (-${sanLoss} SAN)` : ' (-1 SAN)'), 'msg-sanity');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ALTAR INTERACTION
+// ═══════════════════════════════════════════════════════════════
+function interactAltar() {
+  addMsg('You kneel before the dark altar...', 'msg-lore');
+  const roll = rng(1, 6);
+  if (roll <= 2) {
+    const heal = rng(10, 20);
+    state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
+    addMsg(`A cold light washes over you. +${heal} HP.`, 'msg-good');
+  } else if (roll <= 4) {
+    const sanLoss = rng(3, 8);
+    state.player.sanity -= sanLoss;
+    addMsg(`Visions of impossible geometries flood your mind! -${sanLoss} SAN.`, 'msg-sanity');
+  } else {
+    state.player.baseAtk += 1;
+    state.player.sanity -= rng(5, 10);
+    recalcStats();
+    addMsg('Dark power surges through you! +1 ATK... but at what cost?', 'msg-lore');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  PLAYER ACTIONS
+// ═══════════════════════════════════════════════════════════════
+function tryMove(dx, dy) {
+  if (state.gameOver || state.showInventory || state.showHelp) return;
+
+  const nx = state.player.x + dx;
+  const ny = state.player.y + dy;
+
+  // Update facing direction based on movement
+  state.player.facing = dirFromDelta(dx, dy);
+
+  // Bump to open closed doors (costs a turn but doesn't move)
+  if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT
+      && state.map[ny * WIDTH + nx] === TILE.DOOR_CLOSED) {
+    state.map[ny * WIDTH + nx] = TILE.DOOR_OPEN;
+    addMsg('You open the door.', 'msg-info');
+    endPlayerTurn();
+    return;
+  }
+
+  if (!isPassable(nx, ny)) {
+    render(); // Re-render to show new facing even on failed move
+    return; // Bump into wall — no turn spent
+  }
+
+  // Check for monster at destination
+  const monster = state.monsters.find(m => m.x === nx && m.y === ny && m.hp > 0);
+  if (monster) {
+    playerAttackMonster(monster);
+    endPlayerTurn();
+    return;
+  }
+
+  state.player.x = nx;
+  state.player.y = ny;
+
+  // Auto-pickup gold
+  const goldItem = state.items.find(it => it.x === nx && it.y === ny && it.type === 'gold');
+  if (goldItem) {
+    state.player.gold += goldItem.amount;
+    addMsg(`You pick up ${goldItem.amount} gold coins.`, 'msg-good');
+    state.items = state.items.filter(it => it !== goldItem);
+  }
+
+  // Altar interaction
+  if (state.map[ny * WIDTH + nx] === TILE.ALTAR) {
+    interactAltar();
+    state.map[ny * WIDTH + nx] = TILE.FLOOR; // Altar used up
+  }
+
+  endPlayerTurn();
+}
+
+function tryPickup() {
+  if (state.gameOver) return;
+  const px = state.player.x, py = state.player.y;
+  const item = state.items.find(it => it.x === px && it.y === py);
+  if (!item) {
+    addMsg('There is nothing here to pick up.', 'msg-info');
+    return;
+  }
+
+  if (item.type === 'weapon') {
+    if (state.player.weapon) {
+      // Drop current weapon
+      state.items.push({ ...state.player.weapon, x: px, y: py });
+      addMsg(`You drop your ${state.player.weapon.name}.`, 'msg-info');
+    }
+    state.player.weapon = item;
+    state.items = state.items.filter(it => it !== item);
+    recalcStats();
+    addMsg(`You equip the ${item.name}. ATK is now ${state.player.atk}.`, 'msg-good');
+  } else if (item.type === 'armor') {
+    if (state.player.armor) {
+      state.items.push({ ...state.player.armor, x: px, y: py });
+      addMsg(`You drop your ${state.player.armor.name}.`, 'msg-info');
+    }
+    state.player.armor = item;
+    state.items = state.items.filter(it => it !== item);
+    recalcStats();
+    addMsg(`You don the ${item.name}. DEF is now ${state.player.def}.`, 'msg-good');
+  } else {
+    if (state.player.inventory.length >= 10) {
+      addMsg('Your inventory is full!', 'msg-warning');
+      return;
+    }
+    state.player.inventory.push(item);
+    state.items = state.items.filter(it => it !== item);
+    addMsg(`You pick up the ${item.name}.`, 'msg-good');
+  }
+  endPlayerTurn();
+}
+
+function tryDescend() {
+  if (state.gameOver) return;
+  const px = state.player.x, py = state.player.y;
+  if (state.map[py * WIDTH + px] !== TILE.STAIRS_DOWN) {
+    addMsg('There are no stairs here.', 'msg-info');
+    return;
+  }
+  state.dlevel++;
+  addMsg(`You descend to depth ${state.dlevel}. The air grows heavier...`, 'msg-lore');
+  if (state.dlevel === 3) addMsg('A distant piping echoes through the tunnels...', 'msg-sanity');
+  if (state.dlevel === 5) addMsg('The geometry of these corridors defies Euclidean reason.', 'msg-sanity');
+  if (state.dlevel === 7) addMsg('Ph\'nglui mglw\'nafh Cthulhu R\'lyeh wgah\'nagl fhtagn!', 'msg-lore');
+  if (state.dlevel >= 9) {
+    victoryScreen();
+    return;
+  }
+  generateLevel();
+  render();
+}
+
+function useInventoryItem(index) {
+  const p = state.player;
+  if (index < 0 || index >= p.inventory.length) return;
+  const item = p.inventory[index];
+  if (item.type === 'consumable' && item.use) {
+    const msg = item.use(p);
+    addMsg(msg, 'msg-good');
+    p.inventory.splice(index, 1);
+    recalcStats();
+    state.showInventory = false;
+    endPlayerTurn();
+  } else {
+    addMsg(`You can't use the ${item.name} that way.`, 'msg-info');
+  }
+}
+
+function dropInventoryItem(index) {
+  const p = state.player;
+  if (index < 0 || index >= p.inventory.length) return;
+  const item = p.inventory.splice(index, 1)[0];
+  item.x = p.x;
+  item.y = p.y;
+  state.items.push(item);
+  addMsg(`You drop the ${item.name}.`, 'msg-info');
+  state.showInventory = false;
+}
+
+function endPlayerTurn() {
+  state.turn++;
+  state.player.turnCount++;
+  processMonsters();
+
+  // Passive HP regeneration: 1 HP every 5 turns
+  if (state.turn % 5 === 0 && state.player.hp < state.player.maxHp) {
+    state.player.hp++;
+  }
+
+  checkSanityEvents();
+
+  if (state.player.sanity <= 0 && !state.gameOver) {
+    addMsg('Your mind shatters into a thousand screaming fragments!', 'msg-danger');
+    addMsg('GAME OVER — Lost to madness.', 'msg-danger');
+    state.gameOver = true;
+  }
+
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  OVERLAYS (Inventory, Help, Title, Death, Victory)
+// ═══════════════════════════════════════════════════════════════
+function renderInventory() {
+  const p = state.player;
+  let text = `<span class="title">═══ INVENTORY ═══</span>\n\n`;
+  if (p.inventory.length === 0) {
+    text += '  (empty)\n';
+  } else {
+    for (let i = 0; i < p.inventory.length; i++) {
+      const item = p.inventory[i];
+      text += `  <span class="key">[${i + 1}]</span> ${item.name} — ${item.desc}\n`;
+    }
+  }
+  text += `\n  Weapon: ${p.weapon ? p.weapon.name : '(none)'}\n`;
+  text += `  Armor:  ${p.armor ? p.armor.name : '(none)'}\n`;
+  text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[ESC/I]</span> Close`;
+  showOverlay(text);
+}
+
+function renderHelp() {
+  const text = `<span class="title">═══ CRAWL OF CTHULHU — HELP ═══</span>
+
+  <span class="subtitle">You are an investigator descending into the
+  cyclopean depths beneath Arkham. Reach depth 9
+  to confront what lurks below — if your mind holds.</span>
+
+  <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
+  <span class="key">Turn:</span>      [R] clockwise / [T] counter-clockwise
+  <span class="key">Wait:</span>      [.] or [5] — skip your turn
+  <span class="key">Pick up:</span>   [G] — grab item on ground
+  <span class="key">Descend:</span>   [>] — use stairs down
+  <span class="key">Inventory:</span> [I] — open inventory
+  <span class="key">Use item:</span>  [1-9] in inventory screen
+  <span class="key">Look:</span>      [L] — inspect tiles with a cursor
+  <span class="key">Help:</span>      [?] — this screen
+
+  <span class="subtitle">VISION</span>
+  You see in a 120° cone in your facing direction.
+  Moving updates your facing. [R]/[T] to turn in
+  place. You have limited peripheral vision behind
+  you. Closed doors (+) block line of sight — bump
+  into them to open.
+
+  <span class="subtitle">SANITY</span>
+  Encountering eldritch horrors drains your sanity.
+  If it reaches 0, you are lost to madness.
+  Laudanum and rest can restore your fragile mind.
+
+  <span class="subtitle">ALTARS</span>
+  Dark altars offer power — but demand a price.
+
+  <span class="subtitle">SYMBOLS</span>
+  <span style="color:#f1c40f;font-weight:bold">→</span> You   <span style="color:#5a5a6e">#</span> Wall   <span style="color:#3a3a4a">.</span> Floor   <span style="color:#eee">></span> Stairs
+  <span style="color:#8B6914">+</span> Door (closed)  <span style="color:#8B6914">/</span> Door (open)
+  <span style="color:#9b59b6">_</span> Altar  <span style="color:#1a5276">~</span> Water  <span style="color:#f1c40f">$</span> Gold
+  <span style="color:#2ecc71">!</span> Potion <span style="color:#aaa">)</span> Weapon <span style="color:#8B6914">[</span> Armor  <span style="color:#6a0dad">?</span> Scroll
+  <span style="color:#f1c40f">*</span> Elder Sign
+
+  <span class="key">[ESC/?]</span> Close this screen`;
+  showOverlay(text);
+}
+
+function showOverlay(html) {
+  let overlay = document.querySelector('.overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'overlay';
+    overlay.innerHTML = '<div class="overlay-content"></div>';
+    document.body.appendChild(overlay);
+  }
+  overlay.querySelector('.overlay-content').innerHTML = html;
+  overlay.style.display = 'flex';
+}
+
+function hideOverlay() {
+  const overlay = document.querySelector('.overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function titleScreen() {
+  showOverlay(`<span class="title">
+   ██████╗██████╗  █████╗ ██╗    ██╗██╗
+  ██╔════╝██╔══██╗██╔══██╗██║    ██║██║
+  ██║     ██████╔╝███████║██║ █╗ ██║██║
+  ██║     ██╔══██╗██╔══██║██║███╗██║██║
+  ╚██████╗██║  ██║██║  ██║╚███╔███╔╝███████╗
+   ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝
+        OF CTHULHU</span>
+
+  <span class="subtitle">A Roguelike Descent into Madness</span>
+
+  <span class="danger">In his house at R'lyeh, dead Cthulhu
+  waits dreaming...</span>
+
+  You are an investigator who has uncovered an
+  entrance to the cyclopean tunnels beneath Arkham.
+  What horrors await in the depths below?
+
+  Descend 9 levels. Survive. Keep your sanity.
+
+  <span class="key">[ENTER]</span> Begin your descent
+  <span class="key">[?]</span>     How to play
+  <span class="key">[H]</span>     Hall of Investigators`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  HIGH SCORES (localStorage)
+// ═══════════════════════════════════════════════════════════════
+const SCORES_KEY = 'crogue_highscores';
+
+function loadScores() {
+  try { return JSON.parse(localStorage.getItem(SCORES_KEY)) || []; }
+  catch { return []; }
+}
+
+function saveScore(entry) {
+  const scores = loadScores();
+  scores.push(entry);
+  scores.sort((a, b) => b.score - a.score);
+  if (scores.length > 10) scores.length = 10;
+  localStorage.setItem(SCORES_KEY, JSON.stringify(scores));
+  return scores;
+}
+
+function calcScore() {
+  const p = state.player;
+  return (state.dlevel * 100) + p.gold + (p.level * 25) + state.turn;
+}
+
+function formatScoreBoard(scores, highlightIndex) {
+  if (scores.length === 0) return '  (no scores yet)\n';
+  let text = '  <span class="subtitle"> #  NAME             SCORE  DEPTH  CAUSE</span>\n';
+  for (let i = 0; i < scores.length; i++) {
+    const s = scores[i];
+    const marker = i === highlightIndex ? '<span class="key">▸</span>' : ' ';
+    const name = (s.name || 'Unknown').padEnd(16).slice(0, 16);
+    const score = String(s.score).padStart(5);
+    const depth = String(s.depth).padStart(4);
+    const cause = s.victory ? 'Survived' : (s.cause === 'sanity' ? 'Madness' : 'Death');
+    const cls = i === highlightIndex ? 'key' : '';
+    const open = cls ? `<span class="${cls}">` : '';
+    const close = cls ? '</span>' : '';
+    text += `  ${marker} ${open}${String(i+1).padStart(2)}. ${name} ${score}  ${depth}   ${cause}${close}\n`;
+  }
+  return text;
+}
+
+// ── Game Over state machine ─────────────────────────────────
+// Phases: 'name_input' → 'scores_shown'
+let gameOverPhase = '';
+let nameInput = '';
+let savedScores = [];
+let savedScoreIndex = -1;
+
+function gameOverScreen() {
+  const isVictory = state.dlevel >= 9 && state.player.hp > 0;
+  const isMadness = state.player.sanity <= 0;
+
+  if (isVictory) {
+    gameOverPhase = 'name_input';
+    nameInput = '';
+    renderVictoryNameInput();
+  } else {
+    gameOverPhase = 'name_input';
+    nameInput = '';
+    renderDeathNameInput();
+  }
+}
+
+function renderDeathNameInput() {
+  const isMadness = state.player.sanity <= 0;
+  const score = calcScore();
+
+  const header = isMadness
+    ? `<span class="danger">
+  ╔═══════════════════════════════════╗
+  ║        LOST TO MADNESS            ║
+  ╚═══════════════════════════════════╝</span>
+
+  Your mind has been consumed by the
+  unfathomable horrors of the Mythos.
+  You are left a gibbering husk, rocking
+  in the darkness, muttering of angles
+  that should not exist.`
+    : `<span class="danger">
+  ╔═══════════════════════════════════╗
+  ║         YOU HAVE PERISHED         ║
+  ╚═══════════════════════════════════╝</span>
+
+  Your broken body lies in the darkness,
+  another victim of the tunnels beneath
+  Arkham. Perhaps the next investigator
+  will find your remains.`;
+
+  showOverlay(`${header}
+
+  Depth reached: <span class="key">${state.dlevel}</span>
+  Level: <span class="key">${state.player.level}</span>
+  Gold collected: <span class="key">${state.player.gold}</span>
+  Turns survived: <span class="key">${state.turn}</span>
+  Final score: <span class="key">${score}</span>
+
+  ${isMadness
+    ? '<span class="subtitle">"The most merciful thing in the world is the\n  inability of the human mind to correlate\n  all its contents." — H.P. Lovecraft</span>'
+    : '<span class="subtitle">"That is not dead which can eternal lie,\n  And with strange aeons even death may die."</span>'}
+
+  Enter your name for the record:
+  <span class="key">▸ ${nameInput}_</span>
+
+  <span class="key">[ENTER]</span> Submit  <span class="key">[ESC]</span> Skip`);
+}
+
+function renderVictoryNameInput() {
+  const score = calcScore();
+  showOverlay(`<span class="title">
+  ╔═══════════════════════════════════╗
+  ║       YOU HAVE SURVIVED!          ║
+  ╚═══════════════════════════════════╝</span>
+
+  Against all odds, you have navigated the
+  impossible depths and emerged — changed,
+  but alive.
+
+  The knowledge you carry will haunt you
+  forever, but the world is safe... for now.
+
+  Depth reached: <span class="key">${state.dlevel}</span>
+  Level: <span class="key">${state.player.level}</span>
+  Gold collected: <span class="key">${state.player.gold}</span>
+  Turns survived: <span class="key">${state.turn}</span>
+  Sanity remaining: <span class="key">${state.player.sanity}</span>
+  Final score: <span class="key">${score}</span>
+
+  <span class="subtitle">"The oldest and strongest emotion of
+  mankind is fear, and the oldest and strongest
+  kind of fear is fear of the unknown."
+  — H.P. Lovecraft</span>
+
+  Enter your name for the record:
+  <span class="key">▸ ${nameInput}_</span>
+
+  <span class="key">[ENTER]</span> Submit  <span class="key">[ESC]</span> Skip`);
+}
+
+function submitScore(name) {
+  const isVictory = state.dlevel >= 9 && state.player.hp > 0;
+  const isMadness = state.player.sanity <= 0;
+  const entry = {
+    name: name || 'Anonymous',
+    score: calcScore(),
+    depth: state.dlevel,
+    level: state.player.level,
+    gold: state.player.gold,
+    turns: state.turn,
+    cause: isVictory ? 'victory' : (isMadness ? 'sanity' : 'death'),
+    victory: isVictory,
+    date: new Date().toISOString().slice(0, 10),
+  };
+  savedScores = saveScore(entry);
+  savedScoreIndex = savedScores.findIndex(s => s === entry);
+  // findIndex on reference won't work after JSON parse, match by fields
+  savedScoreIndex = savedScores.findIndex(s =>
+    s.name === entry.name && s.score === entry.score && s.date === entry.date && s.turns === entry.turns
+  );
+  gameOverPhase = 'scores_shown';
+  renderScoresScreen();
+}
+
+function renderScoresScreen() {
+  showOverlay(`<span class="title">═══ HALL OF INVESTIGATORS ═══</span>
+
+${formatScoreBoard(savedScores, savedScoreIndex)}
+  <span class="key">[ENTER]</span> Return to title`);
+}
+
+function renderHighScoresFromTitle() {
+  const scores = loadScores();
+  showOverlay(`<span class="title">═══ HALL OF INVESTIGATORS ═══</span>
+
+${formatScoreBoard(scores, -1)}
+  <span class="key">[ESC]</span> Back to title`);
+}
+
+// Legacy wrappers (called from game logic)
+function deathScreen() {
+  gameOverScreen();
+}
+
+function victoryScreen() {
+  state.gameOver = true;
+  gameOverScreen();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INPUT HANDLING
+// ═══════════════════════════════════════════════════════════════
+let gameStarted = false;
+let showingTitleScores = false;
+
+document.addEventListener('keydown', (e) => {
+  // Title screen
+  if (!gameStarted) {
+    if (showingTitleScores) {
+      if (e.key === 'Escape') {
+        showingTitleScores = false;
+        titleScreen();
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
+      gameStarted = true;
+      hideOverlay();
+      initState();
+      generateLevel();
+      addMsg('You descend into the darkness beneath Arkham...', 'msg-lore');
+      addMsg('The trapdoor slams shut above you.', 'msg-warning');
+      render();
+      return;
+    }
+    if (e.key === 'h' || e.key === 'H') {
+      showingTitleScores = true;
+      renderHighScoresFromTitle();
+      return;
+    }
+    if (e.key === '?') {
+      renderHelp();
+      state.showHelp = true;
+      return;
+    }
+    if (e.key === 'Escape') {
+      hideOverlay();
+      titleScreen();
+      state.showHelp = false;
+      return;
+    }
+    return;
+  }
+
+  // Death/Victory screen — name input phase
+  if (state.gameOver && gameOverPhase === 'name_input') {
+    if (e.key === 'Enter') {
+      submitScore(nameInput);
+    } else if (e.key === 'Escape') {
+      submitScore('');
+    } else if (e.key === 'Backspace') {
+      nameInput = nameInput.slice(0, -1);
+      // Re-render current input screen
+      const isVictory = state.dlevel >= 9 && state.player.hp > 0;
+      isVictory ? renderVictoryNameInput() : renderDeathNameInput();
+    } else if (e.key.length === 1 && nameInput.length < 16) {
+      nameInput += e.key;
+      const isVictory = state.dlevel >= 9 && state.player.hp > 0;
+      isVictory ? renderVictoryNameInput() : renderDeathNameInput();
+    }
+    return;
+  }
+
+  // Death/Victory screen — scores shown phase
+  if (state.gameOver && gameOverPhase === 'scores_shown') {
+    if (e.key === 'Enter') {
+      gameStarted = false;
+      gameOverPhase = '';
+      hideOverlay();
+      titleScreen();
+    }
+    return;
+  }
+
+  // Inventory screen
+  if (state.showInventory) {
+    if (e.key === 'Escape' || e.key === 'i' || e.key === 'I') {
+      state.showInventory = false;
+      hideOverlay();
+      render();
+      return;
+    }
+    const num = parseInt(e.key);
+    if (num >= 1 && num <= 9) {
+      useInventoryItem(num - 1);
+      if (!state.showInventory) {
+        hideOverlay();
+        render();
+      }
+      return;
+    }
+    return;
+  }
+
+  // Help screen
+  if (state.showHelp) {
+    if (e.key === 'Escape' || e.key === '?') {
+      state.showHelp = false;
+      hideOverlay();
+      render();
+    }
+    return;
+  }
+
+  // Look mode
+  if (state.lookMode) {
+    e.preventDefault();
+    const lookMoveMap = {
+      'ArrowUp': [0,-1], 'ArrowDown': [0,1], 'ArrowLeft': [-1,0], 'ArrowRight': [1,0],
+      'w': [0,-1], 'W': [0,-1], 's': [0,1], 'S': [0,1],
+      'a': [-1,0], 'A': [-1,0], 'd': [1,0], 'D': [1,0],
+      '8': [0,-1], '2': [0,1], '4': [-1,0], '6': [1,0],
+      '7': [-1,-1], '9': [1,-1], '1': [-1,1], '3': [1,1],
+      'q': [-1,-1], 'Q': [-1,-1], 'e': [1,-1], 'E': [1,-1],
+      'z': [-1,1], 'Z': [-1,1], 'x': [1,1], 'X': [1,1],
+    };
+    if (lookMoveMap[e.key]) {
+      const [dx, dy] = lookMoveMap[e.key];
+      state.lookX = clamp(state.lookX + dx, 0, WIDTH - 1);
+      state.lookY = clamp(state.lookY + dy, 0, HEIGHT - 1);
+      render();
+      return;
+    }
+    if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
+      state.lookMode = false;
+      addMsg('Look mode ended.', 'msg-info');
+      render();
+      return;
+    }
+    return;
+  }
+
+  // Game input
+  e.preventDefault();
+  const key = e.key;
+
+  // Movement
+  const moveMap = {
+    'ArrowUp': [0,-1], 'ArrowDown': [0,1], 'ArrowLeft': [-1,0], 'ArrowRight': [1,0],
+    'w': [0,-1], 'W': [0,-1], 's': [0,1], 'S': [0,1],
+    'a': [-1,0], 'A': [-1,0], 'd': [1,0], 'D': [1,0],
+    // Numpad 8-way
+    '8': [0,-1], '2': [0,1], '4': [-1,0], '6': [1,0],
+    '7': [-1,-1], '9': [1,-1], '1': [-1,1], '3': [1,1],
+    // WASD diagonals with q/e/z/x
+    'q': [-1,-1], 'Q': [-1,-1], 'e': [1,-1], 'E': [1,-1],
+    'z': [-1,1], 'Z': [-1,1], 'x': [1,1], 'X': [1,1],
+  };
+
+  if (moveMap[key]) {
+    tryMove(...moveMap[key]);
+    return;
+  }
+
+  switch(key) {
+    case '.': case '5': // Wait
+      addMsg('You wait...', 'msg-info');
+      endPlayerTurn();
+      break;
+    case 'g': case 'G': // Pick up
+      tryPickup();
+      render();
+      break;
+    case '>': // Descend
+      tryDescend();
+      break;
+    case 'i': case 'I': // Inventory
+      state.showInventory = true;
+      renderInventory();
+      break;
+    case '?': // Help
+      state.showHelp = true;
+      renderHelp();
+      break;
+    case 'l': case 'L': // Look
+      state.lookMode = true;
+      state.lookX = state.player.x;
+      state.lookY = state.player.y;
+      addMsg('Look mode — move cursor to inspect tiles. [ESC/L] to exit.', 'msg-info');
+      render();
+      break;
+    case 'r': case 'R': // Rotate clockwise
+      state.player.facing = rotateFacing(state.player.facing, 1);
+      render();
+      break;
+    case 't': case 'T': // Rotate counter-clockwise
+      state.player.facing = rotateFacing(state.player.facing, -1);
+      render();
+      break;
+  }
+
+  // Check for death after any action
+  if (state.gameOver) {
+    deathScreen();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+titleScreen();
+
+</script>
+</body>
+</html>
