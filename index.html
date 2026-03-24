@@ -660,6 +660,7 @@ function spawnMonsters() {
       atk: Math.floor(def.atk * scale),
       def: Math.floor(def.def * scale),
       awake: false,
+      identified: false,
       lastSeenX: -1, lastSeenY: -1,
       pursuitTimer: 0,
     });
@@ -834,7 +835,16 @@ function describeTile(x, y) {
   if (visible) {
     // Monster
     const monster = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
-    if (monster) return `${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`;
+    if (monster) {
+      if (!monster.identified && state.lookMode) {
+        identifyMonster(monster);
+      }
+      if (monster.identified) {
+        return `${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`;
+      } else {
+        return 'Something lurks here... [L]ook to identify.';
+      }
+    }
 
     // Item
     const item = state.items.find(it => it.x === x && it.y === y);
@@ -894,7 +904,7 @@ function render() {
       if (visible) {
         const monster = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
         if (monster) {
-          html += `<span style="color:${monster.fg};font-weight:bold">${monster.ch}</span>`;
+          html += `<span style="color:${monsterDisplayColor(monster)};font-weight:bold">${monsterDisplayGlyph(monster)}</span>`;
           continue;
         }
       }
@@ -987,6 +997,33 @@ function addMsg(text, type = 'msg-info') {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  MONSTER IDENTIFICATION
+// ═══════════════════════════════════════════════════════════════
+function monsterDisplayName(monster) {
+  return monster.identified ? monster.name : 'thing';
+}
+
+function monsterDisplayGlyph(monster) {
+  return monster.identified ? monster.ch : '?';
+}
+
+function monsterDisplayColor(monster) {
+  return monster.identified ? monster.fg : '#888';
+}
+
+function identifyMonster(monster) {
+  if (monster.identified) return;
+  monster.identified = true;
+  if (monster.sanCost > 0) {
+    const sanLoss = rng(1, monster.sanCost);
+    state.player.sanity -= sanLoss;
+    addMsg(`You recognize it — a ${monster.name}! The sight shakes your resolve. -${sanLoss} SAN`, 'msg-sanity');
+  } else {
+    addMsg(`You identify it as a ${monster.name}.`, 'msg-info');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  COMBAT
 // ═══════════════════════════════════════════════════════════════
 function meleeAttack(attacker, defender, attackerName, defenderName) {
@@ -1007,6 +1044,9 @@ function meleeAttack(attacker, defender, attackerName, defenderName) {
 
 function playerAttackMonster(monster) {
   const p = state.player;
+  // Melee contact reveals the creature
+  if (!monster.identified) identifyMonster(monster);
+  const mName = monsterDisplayName(monster);
   const exhausted = p.stamina <= 0;
   // Melee costs 1 stamina; if exhausted, attack is weakened
   if (p.stamina > 0) {
@@ -1017,31 +1057,34 @@ function playerAttackMonster(monster) {
     const savedAtk = p.atk;
     p.atk = Math.max(1, Math.floor(p.atk / 2));
     addMsg('You swing feebly, exhausted...', 'msg-warning');
-    meleeAttack(p, monster, 'You', `the ${monster.name}`);
+    meleeAttack(p, monster, 'You', `the ${mName}`);
     p.atk = savedAtk;
   } else {
-    meleeAttack(p, monster, 'You', `the ${monster.name}`);
+    meleeAttack(p, monster, 'You', `the ${mName}`);
   }
 
   if (monster.hp <= 0) {
-    addMsg(`The ${monster.name} is destroyed!`, 'msg-good');
+    addMsg(`The ${mName} is destroyed!`, 'msg-good');
     p.xp += monster.xp;
     checkLevelUp();
   }
 }
 
 function monsterAttackPlayer(monster) {
-  meleeAttack(monster, state.player, `The ${monster.name}`, 'you');
+  // Being attacked reveals the creature
+  if (!monster.identified) identifyMonster(monster);
+  const mName = monsterDisplayName(monster);
+  meleeAttack(monster, state.player, `The ${mName}`, 'you');
 
   // Sanity damage from eldritch monsters
   if (monster.sanCost > 0 && Math.random() < 0.3) {
     const sanLoss = rng(1, monster.sanCost);
     state.player.sanity -= sanLoss;
-    addMsg(`The sight of the ${monster.name} erodes your sanity! -${sanLoss} SAN`, 'msg-sanity');
+    addMsg(`The sight of the ${mName} erodes your sanity! -${sanLoss} SAN`, 'msg-sanity');
   }
 
   if (state.player.hp <= 0) {
-    addMsg(`You have been slain by the ${monster.name}!`, 'msg-danger');
+    addMsg(`You have been slain by the ${mName}!`, 'msg-danger');
     state.gameOver = true;
   }
   if (state.player.sanity <= 0) {
@@ -1235,8 +1278,9 @@ function fireAtTarget(tx, ty) {
   const rangePenalty = overRange * 0.10; // -10% per tile beyond range
   const distPenalty = (Math.min(d, f.range) / f.range) * 0.10; // slight penalty within range
   const hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+  const mName = monsterDisplayName(monster);
   if (Math.random() > hitChance) {
-    addMsg(`You fire at the ${monster.name} — miss! (${Math.round(hitChance * 100)}% chance)`, 'msg-warning');
+    addMsg(`You fire at the ${mName} — miss! (${Math.round(hitChance * 100)}% chance)`, 'msg-warning');
     wakeNearbyMonsters();
     return true;
   }
@@ -1245,10 +1289,10 @@ function fireAtTarget(tx, ty) {
   let dmg = Math.max(1, rng(f.damage[0], f.damage[1]) - Math.floor(monster.def / 2));
   if (overRange > 0) dmg = Math.max(1, Math.floor(dmg * 0.7)); // 30% damage reduction beyond range
   monster.hp -= dmg;
-  addMsg(`You shoot the ${monster.name} for ${dmg} damage!`, 'msg-danger');
+  addMsg(`You shoot the ${mName} for ${dmg} damage!`, 'msg-danger');
 
   if (monster.hp <= 0) {
-    addMsg(`The ${monster.name} collapses!`, 'msg-good');
+    addMsg(`The ${mName} collapses!`, 'msg-good');
     p.xp += monster.xp;
     checkLevelUp();
   }
@@ -1354,9 +1398,7 @@ function monsterTurn(monster) {
     monster.lastSeenX = px;
     monster.lastSeenY = py;
     monster.pursuitTimer = monster.aggression;
-    if (monster.sanCost > 0) {
-      addMsg(`A ${monster.name} emerges from the darkness!`, 'msg-warning');
-    }
+    addMsg(`Something stirs in the darkness!`, 'msg-warning');
   }
 
   if (!monster.awake) return;
