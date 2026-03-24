@@ -156,54 +156,63 @@ const MONSTER_DEFS = {
     name: 'sewer rat', ch: 'r', fg: '#8B6914',
     hp: 4, atk: 1, def: 0, xp: 2, speed: 1,
     sanCost: 0, desc: 'A mangy sewer rat.',
+    hint: 'Something small skitters in the dark.',
     minLevel: 1, aggression: 3 // gives up quickly
   },
   cultist: {
     name: 'cultist', ch: 'c', fg: '#cc3333',
     hp: 8, atk: 3, def: 1, xp: 5, speed: 1,
     sanCost: 1, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
+    hint: 'A hunched, human-shaped figure.',
     minLevel: 1, aggression: 8 // zealous pursuers
   },
   ghoul: {
     name: 'ghoul', ch: 'g', fg: '#6B8E23',
     hp: 14, atk: 5, def: 2, xp: 10, speed: 1,
     sanCost: 3, desc: 'A hunched, dog-faced corpse-eater.',
+    hint: 'A crouching shape that reeks of the grave.',
     minLevel: 2, aggression: 6 // persistent scavengers
   },
   deepOne: {
     name: 'deep one', ch: 'D', fg: '#1abc9c',
     hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
     sanCost: 5, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
+    hint: 'Something wet and glistening. It smells of brine.',
     minLevel: 3, aggression: 10 // territorial and relentless
   },
   miGo: {
     name: 'mi-go', ch: 'M', fg: '#e74c3c',
     hp: 18, atk: 6, def: 2, xp: 20, speed: 2,
     sanCost: 7, desc: 'A fungoid crustacean from Yuggoth.',
+    hint: 'A buzzing, insectoid shape that defies geometry.',
     minLevel: 4, aggression: 12 // intelligent hunters
   },
   nightgaunt: {
     name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
     hp: 25, atk: 8, def: 4, xp: 30, speed: 1,
     sanCost: 8, desc: 'A faceless, rubbery, horned flyer.',
+    hint: 'A dark, winged silhouette with no face.',
     minLevel: 5, aggression: 5 // ambush predators, lose interest fast
   },
   dimensionalShambler: {
     name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
     hp: 35, atk: 10, def: 5, xp: 45, speed: 1,
     sanCost: 10, desc: 'It lurches between planes of existence.',
+    hint: 'A shape that flickers, as though not fully here.',
     minLevel: 6, aggression: 7
   },
   starSpawn: {
     name: 'star spawn', ch: 'X', fg: '#6a0dad',
     hp: 50, atk: 14, def: 7, xp: 80, speed: 1,
     sanCost: 15, desc: 'A towering mass of tentacles and malice.',
+    hint: 'Something enormous and wrong. Your eyes refuse to focus.',
     minLevel: 7, aggression: 15 // nearly relentless
   },
   shoggoth: {
     name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
     hp: 80, atk: 18, def: 8, xp: 150, speed: 1,
     sanCost: 20, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
+    hint: 'A vast, formless mass that fills the passage. Do not look closer.',
     minLevel: 8, aggression: 20 // never forgets
   }
 };
@@ -836,13 +845,10 @@ function describeTile(x, y) {
     // Monster
     const monster = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
     if (monster) {
-      if (!monster.identified && state.lookMode) {
-        identifyMonster(monster);
-      }
       if (monster.identified) {
         return `${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`;
       } else {
-        return 'Something lurks here... [L]ook to identify.';
+        return `${monster.hint} [Enter] Examine`;
       }
     }
 
@@ -1044,8 +1050,6 @@ function meleeAttack(attacker, defender, attackerName, defenderName) {
 
 function playerAttackMonster(monster) {
   const p = state.player;
-  // Melee contact reveals the creature
-  if (!monster.identified) identifyMonster(monster);
   const mName = monsterDisplayName(monster);
   const exhausted = p.stamina <= 0;
   // Melee costs 1 stamina; if exhausted, attack is weakened
@@ -1071,8 +1075,6 @@ function playerAttackMonster(monster) {
 }
 
 function monsterAttackPlayer(monster) {
-  // Being attacked reveals the creature
-  if (!monster.identified) identifyMonster(monster);
   const mName = monsterDisplayName(monster);
   meleeAttack(monster, state.player, `The ${mName}`, 'you');
 
@@ -1812,6 +1814,7 @@ function renderHelp() {
 
   <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
   <span class="key">Look/Aim:</span>  [L] — move cursor to inspect or aim
+  <span class="key">Examine:</span>   [Enter] in look mode — identify a creature
   <span class="key">Fire:</span>      [F] in look mode — shoot at cursor
   <span class="key">Reload:</span>    [R] — reload your firearm (takes turns)
   <span class="key">Turn:</span>      [[] / []] — rotate facing
@@ -1855,6 +1858,15 @@ function renderHelp() {
   you. Closed doors (+) block line of sight — bump
   into them to open.
 
+  <span class="subtitle">CREATURES</span>
+  Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers and are
+  called "things" in messages. You can fight them
+  without identifying them. Use [L]ook and move the
+  cursor over a creature to see a vague impression,
+  then press [Enter] to examine it and learn what
+  it truly is. Beware: identifying eldritch horrors
+  costs SANITY. Sometimes ignorance is safer.
+
   <span class="subtitle">SANITY</span>
   Encountering eldritch horrors drains your sanity.
   If it reaches 0, you are lost to madness.
@@ -1868,7 +1880,7 @@ function renderHelp() {
   <span style="color:#8B6914">+</span> Door (closed)  <span style="color:#8B6914">/</span> Door (open)
   <span style="color:#9b59b6">_</span> Altar  <span style="color:#1a5276">~</span> Water  <span style="color:#f1c40f">$</span> Gold
   <span style="color:#2ecc71">!</span> Potion <span style="color:#aaa">)</span> Weapon <span style="color:#8B6914">[</span> Armor  <span style="color:#6a0dad">?</span> Scroll
-  <span style="color:#c0a030">=</span> Ammo   <span style="color:#f1c40f">*</span> Elder Sign
+  <span style="color:#c0a030">=</span> Ammo   <span style="color:#f1c40f">*</span> Elder Sign  <span style="color:#888;font-weight:bold">?</span> Unknown creature
 
   <span class="key">[ESC/?]</span> Close this screen`;
   showOverlay(text);
@@ -2262,6 +2274,19 @@ document.addEventListener('keydown', (e) => {
       endPlayerTurn(); // costs a real turn — monsters move!
       return;
     }
+    if (e.key === 'Enter') {
+      // Examine: deliberately identify the monster under the cursor
+      const monster = state.monsters.find(m => m.x === state.lookX && m.y === state.lookY && m.hp > 0);
+      if (monster && !monster.identified) {
+        identifyMonster(monster);
+      } else if (monster && monster.identified) {
+        addMsg(`${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`, 'msg-info');
+      } else {
+        addMsg('There is nothing here to examine.', 'msg-info');
+      }
+      render();
+      return;
+    }
     if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
       state.lookMode = false;
       state.aimTurns = 0;
@@ -2318,7 +2343,7 @@ document.addEventListener('keydown', (e) => {
       state.lookMode = true;
       state.lookX = state.player.x;
       state.lookY = state.player.y;
-      addMsg('Look mode — move cursor to inspect. [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
+      addMsg('Look mode — move cursor to inspect. [Enter] Examine · [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
       render();
       break;
     case 'r': case 'R': // Reload firearm
