@@ -356,33 +356,36 @@ function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function dist(x1, y1, x2, y2) { return Math.sqrt((x2-x1)**2 + (y2-y1)**2); }
 
 // ── Direction system ────────────────────────────────────────
-// 8 directions: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
-const DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1];
-const DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1];
+// 4 cardinal directions: 0=N, 1=E, 2=S, 3=W
+const DIR_DX = [0, 1, 0, -1];
+const DIR_DY = [-1, 0, 1, 0];
 const DIR_ANGLES = []; // radians for each direction
-for (let i = 0; i < 8; i++) DIR_ANGLES[i] = Math.atan2(DIR_DY[i], DIR_DX[i]);
+for (let i = 0; i < 4; i++) DIR_ANGLES[i] = Math.atan2(DIR_DY[i], DIR_DX[i]);
 
 // Player glyphs per facing direction
-const FACING_GLYPHS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+const FACING_GLYPHS = ['↑', '→', '↓', '←'];
 
 function dirFromDelta(dx, dy) {
-  for (let i = 0; i < 8; i++) {
-    if (DIR_DX[i] === dx && DIR_DY[i] === dy) return i;
+  // Snap any movement (including diagonal) to nearest cardinal direction
+  const angle = Math.atan2(dy, dx);
+  let bestDir = 0, bestDiff = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const diff = Math.abs(angleDiff(angle, DIR_ANGLES[i]));
+    if (diff < bestDiff) { bestDiff = diff; bestDir = i; }
   }
-  return 2; // default east
+  return bestDir;
 }
 
 function rotateFacing(current, amount) {
-  return ((current + amount) % 8 + 8) % 8;
+  return ((current + amount) % 4 + 4) % 4;
 }
 
 function updateFacingToward(tx, ty) {
   const px = state.player.x, py = state.player.y;
   if (tx === px && ty === py) return;
   const angle = Math.atan2(ty - py, tx - px);
-  // Find closest direction
   let bestDir = 0, bestDiff = Infinity;
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 4; i++) {
     const diff = Math.abs(angleDiff(angle, DIR_ANGLES[i]));
     if (diff < bestDiff) { bestDiff = diff; bestDir = i; }
   }
@@ -412,7 +415,7 @@ function initState() {
     items: [],
     player: {
       x: 0, y: 0,
-      facing: 2, // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW (start facing east/right)
+      facing: 1, // 0=N,1=E,2=S,3=W (start facing east/right)
       hp: 30, maxHp: 30,
       sanity: 100, maxSanity: 100,
       stamina: 10, maxStamina: 10, // stamina for running and melee
@@ -778,9 +781,10 @@ function spawnAmmo() {
 // ═══════════════════════════════════════════════════════════════
 //  FIELD OF VIEW (Directional cone + peripheral)
 // ═══════════════════════════════════════════════════════════════
-const CONE_HALF_ANGLE = Math.PI / 3;   // 60° each side = 120° forward cone
-const PERIPHERAL_RADIUS = 3;           // small radius behind/beside you
-const FOV_FRONT_RADIUS = FOV_RADIUS;   // full range forward
+const CONE_HALF_ANGLE = Math.PI / 3;     // 60° each side = 120° forward cone
+const PERIPHERAL_HALF_ANGLE = Math.PI * 0.75; // 135° each side = 270° peripheral zone
+const PERIPHERAL_RADIUS = 2;             // short range for side vision
+const FOV_FRONT_RADIUS = FOV_RADIUS;     // full range forward
 
 function computeFOV() {
   state.visible.fill(0);
@@ -796,7 +800,9 @@ function computeFOV() {
     const rayAngle = (i / numRays) * Math.PI * 2;
     const diff = Math.abs(angleDiff(rayAngle, facingAngle));
     const inCone = diff <= CONE_HALF_ANGLE;
-    const maxRange = inCone ? FOV_FRONT_RADIUS : PERIPHERAL_RADIUS;
+    const inPeripheral = diff <= PERIPHERAL_HALF_ANGLE;
+    // Forward cone: full range. Sides: short range. Behind: nothing.
+    const maxRange = inCone ? FOV_FRONT_RADIUS : (inPeripheral ? PERIPHERAL_RADIUS : 0);
 
     const dx = Math.cos(rayAngle);
     const dy = Math.sin(rayAngle);
@@ -837,7 +843,7 @@ function describeTile(x, y) {
 
   // Player
   if (x === state.player.x && y === state.player.y) {
-    const dirNames = ['north','northeast','east','southeast','south','southwest','west','northwest'];
+    const dirNames = ['north','east','south','west'];
     return `You — a lone investigator, facing ${dirNames[state.player.facing]}.`;
   }
 
@@ -1050,6 +1056,8 @@ function meleeAttack(attacker, defender, attackerName, defenderName) {
 
 function playerAttackMonster(monster) {
   const p = state.player;
+  // Melee contact reveals the creature
+  if (!monster.identified) identifyMonster(monster);
   const mName = monsterDisplayName(monster);
   const exhausted = p.stamina <= 0;
   // Melee costs 1 stamina; if exhausted, attack is weakened
@@ -1854,9 +1862,9 @@ function renderHelp() {
   <span class="subtitle">VISION</span>
   You see in a 120° cone in your facing direction.
   Moving updates your facing. [[] / []] to turn in
-  place. You have limited peripheral vision behind
-  you. Closed doors (+) block line of sight — bump
-  into them to open.
+  place. You have short peripheral vision to the
+  sides, but NOTHING behind you. Closed doors (+)
+  block line of sight — bump into them to open.
 
   <span class="subtitle">CREATURES</span>
   Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers and are
