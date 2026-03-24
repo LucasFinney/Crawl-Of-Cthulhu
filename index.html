@@ -46,6 +46,7 @@ body {
 .stat-dlvl { color: #888; }
 .stat-xp { color: #f1c40f; }
 .stat-gold { color: #f39c12; }
+.stat-stam { color: #2ecc71; }
 
 #display {
   font-size: 15px;
@@ -116,7 +117,7 @@ body {
   <div id="stats-bar"></div>
   <div id="display"></div>
   <div id="message-log"></div>
-  <div id="help-bar">[←↑↓→/WASD] Move · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [I] Inventory · [[ / ]] Turn · [>] Descend · [?] Help</div>
+  <div id="help-bar">[←↑↓→/WASD] Move · [Tab] Run · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [I] Inventory · [[ / ]] Turn · [>] Descend · [?] Help</div>
 </div>
 
 <script>
@@ -155,55 +156,55 @@ const MONSTER_DEFS = {
     name: 'sewer rat', ch: 'r', fg: '#8B6914',
     hp: 4, atk: 1, def: 0, xp: 2, speed: 1,
     sanCost: 0, desc: 'A mangy sewer rat.',
-    minLevel: 1
+    minLevel: 1, aggression: 3 // gives up quickly
   },
   cultist: {
     name: 'cultist', ch: 'c', fg: '#cc3333',
     hp: 8, atk: 3, def: 1, xp: 5, speed: 1,
     sanCost: 1, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
-    minLevel: 1
+    minLevel: 1, aggression: 8 // zealous pursuers
   },
   ghoul: {
     name: 'ghoul', ch: 'g', fg: '#6B8E23',
     hp: 14, atk: 5, def: 2, xp: 10, speed: 1,
     sanCost: 3, desc: 'A hunched, dog-faced corpse-eater.',
-    minLevel: 2
+    minLevel: 2, aggression: 6 // persistent scavengers
   },
   deepOne: {
     name: 'deep one', ch: 'D', fg: '#1abc9c',
     hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
     sanCost: 5, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
-    minLevel: 3
+    minLevel: 3, aggression: 10 // territorial and relentless
   },
   miGo: {
     name: 'mi-go', ch: 'M', fg: '#e74c3c',
     hp: 18, atk: 6, def: 2, xp: 20, speed: 2,
     sanCost: 7, desc: 'A fungoid crustacean from Yuggoth.',
-    minLevel: 4
+    minLevel: 4, aggression: 12 // intelligent hunters
   },
   nightgaunt: {
     name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
     hp: 25, atk: 8, def: 4, xp: 30, speed: 1,
     sanCost: 8, desc: 'A faceless, rubbery, horned flyer.',
-    minLevel: 5
+    minLevel: 5, aggression: 5 // ambush predators, lose interest fast
   },
   dimensionalShambler: {
     name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
     hp: 35, atk: 10, def: 5, xp: 45, speed: 1,
     sanCost: 10, desc: 'It lurches between planes of existence.',
-    minLevel: 6
+    minLevel: 6, aggression: 7
   },
   starSpawn: {
     name: 'star spawn', ch: 'X', fg: '#6a0dad',
     hp: 50, atk: 14, def: 7, xp: 80, speed: 1,
     sanCost: 15, desc: 'A towering mass of tentacles and malice.',
-    minLevel: 7
+    minLevel: 7, aggression: 15 // nearly relentless
   },
   shoggoth: {
     name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
     hp: 80, atk: 18, def: 8, xp: 150, speed: 1,
     sanCost: 20, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
-    minLevel: 8
+    minLevel: 8, aggression: 20 // never forgets
   }
 };
 
@@ -405,6 +406,8 @@ function initState() {
       facing: 2, // 0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW (start facing east/right)
       hp: 30, maxHp: 30,
       sanity: 100, maxSanity: 100,
+      stamina: 10, maxStamina: 10, // stamina for running and melee
+      running: false,
       atk: 2, def: 0,
       baseAtk: 2, baseDef: 0,
       xp: 0, level: 1, xpNext: 15,
@@ -657,6 +660,8 @@ function spawnMonsters() {
       atk: Math.floor(def.atk * scale),
       def: Math.floor(def.def * scale),
       awake: false,
+      lastSeenX: -1, lastSeenY: -1,
+      pursuitTimer: 0,
     });
   }
 }
@@ -956,6 +961,7 @@ function renderStats() {
   bar.innerHTML = `
     <span class="stat stat-hp">HP: ${p.hp}/${p.maxHp}</span>
     <span class="stat stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>
+    <span class="stat stat-stam">STM: ${p.stamina}/${p.maxStamina}${p.running ? ' [RUN]' : ''}</span>
     <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
     <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
     <span class="stat" style="color:#c0a030">${ammoDisp}</span>
@@ -1000,11 +1006,26 @@ function meleeAttack(attacker, defender, attackerName, defenderName) {
 }
 
 function playerAttackMonster(monster) {
-  meleeAttack(state.player, monster, 'You', `the ${monster.name}`);
+  const p = state.player;
+  const exhausted = p.stamina <= 0;
+  // Melee costs 1 stamina; if exhausted, attack is weakened
+  if (p.stamina > 0) {
+    p.stamina--;
+  }
+  if (exhausted) {
+    // Temporarily halve attack for this swing
+    const savedAtk = p.atk;
+    p.atk = Math.max(1, Math.floor(p.atk / 2));
+    addMsg('You swing feebly, exhausted...', 'msg-warning');
+    meleeAttack(p, monster, 'You', `the ${monster.name}`);
+    p.atk = savedAtk;
+  } else {
+    meleeAttack(p, monster, 'You', `the ${monster.name}`);
+  }
 
   if (monster.hp <= 0) {
     addMsg(`The ${monster.name} is destroyed!`, 'msg-good');
-    state.player.xp += monster.xp;
+    p.xp += monster.xp;
     checkLevelUp();
   }
 }
@@ -1040,6 +1061,8 @@ function checkLevelUp() {
     p.hp = Math.min(p.hp + rng(5, 10), p.maxHp);
     p.baseAtk += 1;
     p.baseDef += (p.level % 2 === 0) ? 1 : 0;
+    p.maxStamina += 2;
+    p.stamina = p.maxStamina; // Full stamina on level up
     recalcStats();
     addMsg(`*** LEVEL UP! You are now level ${p.level}! ***`, 'msg-good');
   }
@@ -1323,10 +1346,14 @@ function monsterTurn(monster) {
 
   const px = state.player.x, py = state.player.y;
   const d = dist(monster.x, monster.y, px, py);
+  const canSee = hasLineOfSight(monster.x, monster.y, px, py) && d <= FOV_RADIUS;
 
   // Wake up if player is visible and close
   if (!monster.awake && state.visible[monster.y * WIDTH + monster.x] && d < FOV_RADIUS) {
     monster.awake = true;
+    monster.lastSeenX = px;
+    monster.lastSeenY = py;
+    monster.pursuitTimer = monster.aggression;
     if (monster.sanCost > 0) {
       addMsg(`A ${monster.name} emerges from the darkness!`, 'msg-warning');
     }
@@ -1334,20 +1361,56 @@ function monsterTurn(monster) {
 
   if (!monster.awake) return;
 
-  // Adjacent? Attack
+  // Update pursuit memory
+  if (canSee) {
+    monster.lastSeenX = px;
+    monster.lastSeenY = py;
+    monster.pursuitTimer = monster.aggression; // Reset timer when player is visible
+  } else {
+    // Can't see the player — count down pursuit timer
+    monster.pursuitTimer--;
+    if (monster.pursuitTimer <= 0) {
+      // Lost interest — go back to sleep
+      monster.awake = false;
+      monster.lastSeenX = -1;
+      monster.lastSeenY = -1;
+      monster.pursuitTimer = 0;
+      return;
+    }
+  }
+
+  // Determine target: player if visible, or last known position if pursuing blind
+  let targetX, targetY;
+  if (canSee) {
+    targetX = px;
+    targetY = py;
+  } else {
+    targetX = monster.lastSeenX;
+    targetY = monster.lastSeenY;
+    // If we've reached the last known position and still can't see the player, give up
+    if (monster.x === targetX && monster.y === targetY) {
+      monster.awake = false;
+      monster.lastSeenX = -1;
+      monster.lastSeenY = -1;
+      monster.pursuitTimer = 0;
+      return;
+    }
+  }
+
+  // Adjacent to player? Attack
   if (Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1) {
     monsterAttackPlayer(monster);
     return;
   }
 
-  // Move toward player (simple pathfinding)
-  let bestDx = 0, bestDy = 0, bestDist = d;
+  // Move toward target (simple pathfinding)
+  const dTarget = dist(monster.x, monster.y, targetX, targetY);
+  let bestDx = 0, bestDy = 0, bestDist = dTarget;
   for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
     const nx = monster.x + dx, ny = monster.y + dy;
     if (!isPassable(nx, ny)) continue;
-    // Don't walk into other monsters
     if (state.monsters.some(m => m !== monster && m.hp > 0 && m.x === nx && m.y === ny)) continue;
-    const nd = dist(nx, ny, px, py);
+    const nd = dist(nx, ny, targetX, targetY);
     if (nd < bestDist) {
       bestDist = nd;
       bestDx = dx;
@@ -1452,63 +1515,100 @@ function interactAltar() {
 function tryMove(dx, dy) {
   if (state.gameOver || state.showInventory || state.showHelp) return;
 
-  const nx = state.player.x + dx;
-  const ny = state.player.y + dy;
+  const p = state.player;
+  const nx = p.x + dx;
+  const ny = p.y + dy;
 
   // Update facing direction based on movement
-  state.player.facing = dirFromDelta(dx, dy);
+  p.facing = dirFromDelta(dx, dy);
 
   // Bump to open closed doors (costs a turn but doesn't move)
   if (nx >= 0 && nx < WIDTH && ny >= 0 && ny < HEIGHT
       && state.map[ny * WIDTH + nx] === TILE.DOOR_CLOSED) {
     state.map[ny * WIDTH + nx] = TILE.DOOR_OPEN;
     addMsg('You open the door.', 'msg-info');
+    p.running = false; // Stop running when opening doors
     endPlayerTurn();
     return;
   }
 
   if (!isPassable(nx, ny)) {
-    render(); // Re-render to show new facing even on failed move
-    return; // Bump into wall — no turn spent
+    p.running = false; // Hit a wall, stop running
+    render();
+    return;
   }
 
   // Check for monster at destination
   const monster = state.monsters.find(m => m.x === nx && m.y === ny && m.hp > 0);
   if (monster) {
     playerAttackMonster(monster);
+    p.running = false; // Stop running on melee
     endPlayerTurn();
     return;
   }
 
-  state.player.x = nx;
-  state.player.y = ny;
+  p.x = nx;
+  p.y = ny;
 
   // Moving cancels an in-progress reload
-  if (state.player.firearm && state.player.firearm.reloading > 0) {
-    state.player.firearm.reloading = 0;
+  if (p.firearm && p.firearm.reloading > 0) {
+    p.firearm.reloading = 0;
     addMsg('Reload interrupted!', 'msg-warning');
   }
 
+  // Auto-pickup items at first step
+  doAutoPickup(nx, ny);
+
+  // Altar interaction
+  if (state.map[ny * WIDTH + nx] === TILE.ALTAR) {
+    interactAltar();
+    state.map[ny * WIDTH + nx] = TILE.FLOOR;
+    p.running = false;
+    endPlayerTurn();
+    return;
+  }
+
+  // Run mode: take a second step if running and have stamina
+  if (p.running && p.stamina >= 1) {
+    p.stamina--;
+    const nx2 = p.x + dx;
+    const ny2 = p.y + dy;
+    // Second step must be passable and free of monsters/doors/altars
+    if (isPassable(nx2, ny2)
+        && !(nx2 >= 0 && nx2 < WIDTH && ny2 >= 0 && ny2 < HEIGHT && state.map[ny2 * WIDTH + nx2] === TILE.DOOR_CLOSED)
+        && !state.monsters.some(m => m.x === nx2 && m.y === ny2 && m.hp > 0)
+        && state.map[ny2 * WIDTH + nx2] !== TILE.ALTAR) {
+      p.x = nx2;
+      p.y = ny2;
+      doAutoPickup(nx2, ny2);
+    } else {
+      // Can't take second step — stop running
+      p.running = false;
+    }
+  }
+
+  // Auto-disable running if out of stamina
+  if (p.running && p.stamina <= 0) {
+    p.running = false;
+    addMsg('You are exhausted and slow to a walk.', 'msg-warning');
+  }
+
+  endPlayerTurn();
+}
+
+function doAutoPickup(px, py) {
   // Auto-pickup gold
-  const goldItem = state.items.find(it => it.x === nx && it.y === ny && it.type === 'gold');
+  const goldItem = state.items.find(it => it.x === px && it.y === py && it.type === 'gold');
   if (goldItem) {
     state.player.gold += goldItem.amount;
     addMsg(`You pick up ${goldItem.amount} gold coins.`, 'msg-good');
     state.items = state.items.filter(it => it !== goldItem);
   }
   // Auto-pickup ammo (into inventory)
-  const ammoItem = state.items.find(it => it.x === nx && it.y === ny && it.type === 'ammo');
+  const ammoItem = state.items.find(it => it.x === px && it.y === py && it.type === 'ammo');
   if (ammoItem) {
     pickupAmmoItem(ammoItem);
   }
-
-  // Altar interaction
-  if (state.map[ny * WIDTH + nx] === TILE.ALTAR) {
-    interactAltar();
-    state.map[ny * WIDTH + nx] = TILE.FLOOR; // Altar used up
-  }
-
-  endPlayerTurn();
 }
 
 function tryPickup() {
@@ -1610,6 +1710,11 @@ function endPlayerTurn() {
     state.player.hp++;
   }
 
+  // Stamina regeneration: 1 stamina every 2 turns (much faster than HP)
+  if (!state.player.running && state.turn % 2 === 0 && state.player.stamina < state.player.maxStamina) {
+    state.player.stamina = Math.min(state.player.stamina + 1, state.player.maxStamina);
+  }
+
   // Tick reload progress
   tickReload();
 
@@ -1668,6 +1773,7 @@ function renderHelp() {
   <span class="key">Fire:</span>      [F] in look mode — shoot at cursor
   <span class="key">Reload:</span>    [R] — reload your firearm (takes turns)
   <span class="key">Turn:</span>      [[] / []] — rotate facing
+  <span class="key">Run:</span>       [Tab] — toggle run mode (2x move, costs stamina)
   <span class="key">Wait:</span>      [.] or [5] — skip your turn
   <span class="key">Pick up:</span>   [G] — grab item on ground
   <span class="key">Descend:</span>   [>] — use stairs down
@@ -1686,6 +1792,19 @@ function renderHelp() {
   (takes multiple turns — moving cancels it).
   Gunfire is LOUD and wakes nearby monsters.
   Ammo and equipment take inventory slots!
+
+  <span style="color:#888">NOTE: Aim is locked to a TILE, not a creature.
+  Moving the cursor resets your aim bonus. Against
+  moving targets, you must lead your shots — aim
+  where you expect the enemy to be, not where it is.</span>
+
+  <span class="subtitle">STAMINA</span>
+  Press [Tab] to toggle run mode. While running,
+  you move 2 tiles per turn but spend stamina each
+  step. Melee attacks also cost stamina — fighting
+  while exhausted halves your damage. Stamina
+  regenerates quickly when not running. Max stamina
+  increases with your level.
 
   <span class="subtitle">VISION</span>
   You see in a 120° cone in your facing direction.
@@ -2164,6 +2283,16 @@ document.addEventListener('keydown', (e) => {
       tryReload();
       if (state.player.firearm && state.player.firearm.reloading > 0) endPlayerTurn();
       else render();
+      break;
+    case 'Tab': // Toggle run mode
+      e.preventDefault();
+      if (state.player.stamina > 0) {
+        state.player.running = !state.player.running;
+        addMsg(state.player.running ? 'You break into a run!' : 'You slow to a careful walk.', state.player.running ? 'msg-warning' : 'msg-info');
+      } else {
+        addMsg('You are too exhausted to run.', 'msg-warning');
+      }
+      render();
       break;
     case ']': // Rotate clockwise
       state.player.facing = rotateFacing(state.player.facing, 1);
