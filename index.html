@@ -472,15 +472,21 @@ function floodFill(startX, startY) {
 }
 
 function generateLevel() {
-  for (let attempt = 0; attempt < 10; attempt++) {
+  for (let attempt = 0; attempt < 20; attempt++) {
     generateLevelInner();
-    // Validate: player must be able to reach the stairs
+    // Validate: at least 2 rooms, and player must be able to reach the stairs
+    if (state.rooms.length < 2) continue;
     const reachable = floodFill(state.player.x, state.player.y);
     const stairsIdx = state.map.indexOf(TILE.STAIRS_DOWN);
-    if (stairsIdx !== -1 && reachable[stairsIdx]) return; // Level is good
+    if (stairsIdx === -1) continue; // No stairs placed — retry
+    if (reachable[stairsIdx]) return; // Level is good
   }
-  // Fallback: if all attempts fail, just use the last generated level
-  // (fix #1 should make this essentially unreachable)
+  // Fallback: force-connect player to stairs with a direct corridor
+  const stairsIdx = state.map.indexOf(TILE.STAIRS_DOWN);
+  if (stairsIdx !== -1) {
+    const sx = stairsIdx % WIDTH, sy = Math.floor(stairsIdx / WIDTH);
+    carveCorridor(state.player.x, state.player.y, sx, sy);
+  }
 }
 
 function generateLevelInner() {
@@ -881,8 +887,8 @@ function render() {
   for (let y = 0; y < HEIGHT; y++) {
     for (let x = 0; x < WIDTH; x++) {
       const idx = y * WIDTH + x;
-      const visible = state.visible[idx];
-      const explored = state.explored[idx];
+      const visible = devMode || state.visible[idx];
+      const explored = devMode || state.explored[idx];
 
       // Look cursor (rendered on top of everything)
       if (state.lookMode && x === state.lookX && y === state.lookY) {
@@ -2130,6 +2136,7 @@ function victoryScreen() {
 // ═══════════════════════════════════════════════════════════════
 let gameStarted = false;
 let showingTitleScores = false;
+let devMode = false;
 
 document.addEventListener('keydown', (e) => {
   // Title screen
@@ -2375,6 +2382,11 @@ document.addEventListener('keydown', (e) => {
       break;
     case '[': // Rotate counter-clockwise
       state.player.facing = rotateFacing(state.player.facing, -1);
+      render();
+      break;
+    case '`': // Toggle dev mode
+      devMode = !devMode;
+      addMsg(devMode ? 'DEV MODE ON — full map revealed.' : 'DEV MODE OFF.', 'msg-warning');
       render();
       break;
   }
