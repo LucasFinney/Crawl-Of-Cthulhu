@@ -1609,6 +1609,8 @@ function tryMove(dx, dy) {
 
   p.x = nx;
   p.y = ny;
+  state.lookX = nx;
+  state.lookY = ny;
 
   // Moving cancels an in-progress reload
   if (p.firearm && p.firearm.reloading > 0) {
