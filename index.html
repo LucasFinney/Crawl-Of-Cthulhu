@@ -570,6 +570,8 @@ function generateLevelInner() {
   const startRoom = state.rooms[0];
   state.player.x = startRoom.cx;
   state.player.y = startRoom.cy;
+  state.lookX = startRoom.cx;
+  state.lookY = startRoom.cy;
 
   // Place stairs in last room
   const endRoom = state.rooms[state.rooms.length - 1];
@@ -2356,8 +2358,6 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'l': case 'L': // Look
       state.lookMode = true;
-      state.lookX = state.player.x;
-      state.lookY = state.player.y;
       addMsg('Look mode — move cursor to inspect. [Enter] Examine · [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
       render();
       break;
