@@ -116,7 +116,7 @@ body {
   <div id="stats-bar"></div>
   <div id="display"></div>
   <div id="message-log"></div>
-  <div id="help-bar">[←↑↓→/WASD/Numpad] Move · [R/T] Turn · [G] Pick up · [I] Inventory · [L] Look · [>] Descend · [?] Help · [.] Wait</div>
+  <div id="help-bar">[←↑↓→/WASD] Move · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [I] Inventory · [[ / ]] Turn · [>] Descend · [?] Help</div>
 </div>
 
 <script>
@@ -235,10 +235,6 @@ const ITEM_DEFS = {
       return count > 0 ? `The Elder Sign blazes with light! ${count} abomination(s) seared!` : 'The Elder Sign glows faintly but finds no target.';
     }
   },
-  revolver: {
-    name: 'worn revolver', ch: ')', fg: '#aaa', type: 'weapon',
-    atk: 3, desc: 'A battered .38 revolver. +3 ATK.'
-  },
   sacrificialDagger: {
     name: 'sacrificial dagger', ch: ')', fg: '#cc3333', type: 'weapon',
     atk: 5, desc: 'A wavy-bladed kris stained with old blood. +5 ATK.'
@@ -273,7 +269,66 @@ const ITEM_DEFS = {
   gold: {
     name: 'gold coins', ch: '$', fg: '#f1c40f', type: 'gold',
     desc: 'Tarnished coins of unknown provenance.'
-  }
+  },
+  // Ammo items (spawned dynamically based on player's firearm)
+  ammo_45: {
+    name: '.45 ACP rounds', ch: '=', fg: '#c0a030', type: 'ammo',
+    ammoType: '.45 ACP', amount: 0, // amount set at spawn
+    desc: 'A handful of .45 ACP cartridges.',
+  },
+  ammo_38: {
+    name: '.38 Special rounds', ch: '=', fg: '#c0a030', type: 'ammo',
+    ammoType: '.38 Special', amount: 0,
+    desc: 'A box of .38 Special cartridges.',
+  },
+  ammo_12g: {
+    name: '12 gauge shells', ch: '=', fg: '#cc3333', type: 'ammo',
+    ammoType: '12 gauge', amount: 0,
+    desc: 'A few red shotgun shells.',
+  },
+};
+
+// ── Firearm definitions ─────────────────────────────────────
+const FIREARM_DEFS = {
+  m1911: {
+    id: 'm1911',
+    name: 'M1911 pistol',
+    desc: 'A .45 ACP semi-automatic. Reliable stopping power.',
+    ch: ')', fg: '#aaa',
+    damage: [5, 9],     // [min, max]
+    range: 8,
+    magSize: 7,
+    reloadTurns: 2,     // turns spent reloading
+    ammoType: '.45 ACP',
+    accuracy: 0.65,     // base hit chance (before aiming)
+    sound: 'The pistol CRACKS.',
+  },
+  revolver38: {
+    id: 'revolver38',
+    name: '.38 revolver',
+    desc: 'A snub-nosed Colt Detective Special. Quick to draw.',
+    ch: ')', fg: '#8B6914',
+    damage: [4, 7],
+    range: 6,
+    magSize: 6,
+    reloadTurns: 3,     // revolvers are slower to reload
+    ammoType: '.38 Special',
+    accuracy: 0.60,
+    sound: 'The revolver BARKS.',
+  },
+  shotgun: {
+    id: 'shotgun',
+    name: 'coach shotgun',
+    desc: 'A sawn-off double-barrel. Devastating up close.',
+    ch: ')', fg: '#7f8c8d',
+    damage: [10, 18],   // huge damage, but short range and 2 shots
+    range: 4,
+    magSize: 2,
+    reloadTurns: 3,
+    ammoType: '12 gauge',
+    accuracy: 0.70,     // hard to miss with a shotgun
+    sound: 'The shotgun BOOMS.',
+  },
 };
 
 // ── Sanity event table ──────────────────────────────────────
@@ -311,6 +366,19 @@ function rotateFacing(current, amount) {
   return ((current + amount) % 8 + 8) % 8;
 }
 
+function updateFacingToward(tx, ty) {
+  const px = state.player.x, py = state.player.y;
+  if (tx === px && ty === py) return;
+  const angle = Math.atan2(ty - py, tx - px);
+  // Find closest direction
+  let bestDir = 0, bestDiff = Infinity;
+  for (let i = 0; i < 8; i++) {
+    const diff = Math.abs(angleDiff(angle, DIR_ANGLES[i]));
+    if (diff < bestDiff) { bestDiff = diff; bestDir = i; }
+  }
+  state.player.facing = bestDir;
+}
+
 // Angle difference, normalized to [-PI, PI]
 function angleDiff(a, b) {
   let d = a - b;
@@ -342,8 +410,9 @@ function initState() {
       xp: 0, level: 1, xpNext: 15,
       gold: 0,
       inventory: [],
-      weapon: null,
-      armor: null,
+      weapon: null,  // melee weapon (also occupies inventory slot)
+      armor: null,   // also occupies inventory slot
+      firearm: null, // { ...def, ammo: N, reloading: 0 } also occupies inventory slot
       turnCount: 0,
     },
     dlevel: 1,
@@ -354,6 +423,9 @@ function initState() {
     lookMode: false,
     lookX: 0,
     lookY: 0,
+    aimTurns: 0,     // turns spent aiming at current target
+    aimX: -1,        // target being aimed at
+    aimY: -1,
     lastSanityEvent: 100,
     turn: 0,
   };
@@ -626,12 +698,11 @@ function spawnItems() {
     });
   }
 
-  // Spawn weapon/armor based on dungeon level
-  if (Math.random() < 0.4) {
+  // Spawn melee weapon/armor based on dungeon level
+  if (Math.random() < 0.35) {
     const room = pick(state.rooms.slice(1));
-    let weaponKey = 'revolver';
-    if (state.dlevel >= 5) weaponKey = pick(['revolver', 'sacrificialDagger', 'eldrithchBlade']);
-    else if (state.dlevel >= 3) weaponKey = pick(['revolver', 'sacrificialDagger']);
+    let weaponKey = 'sacrificialDagger';
+    if (state.dlevel >= 5) weaponKey = pick(['sacrificialDagger', 'eldrithchBlade']);
     state.items.push({
       ...ITEM_DEFS[weaponKey],
       x: rng(room.x + 1, room.x + room.w - 2),
@@ -644,6 +715,45 @@ function spawnItems() {
     const armorKey = state.dlevel >= 4 ? pick(['leatherCoat', 'chainmail']) : 'leatherCoat';
     state.items.push({
       ...ITEM_DEFS[armorKey],
+      x: rng(room.x + 1, room.x + room.w - 2),
+      y: rng(room.y + 1, room.y + room.h - 2),
+    });
+  }
+
+  // Spawn ammo — adaptive scarcity based on player's reserves
+  spawnAmmo();
+}
+
+function spawnAmmo() {
+  const p = state.player;
+  const f = p.firearm;
+  if (!f) return;
+
+  const ammoType = f.ammoType;
+  const reserve = countReserveAmmo(ammoType);
+  const totalAmmo = reserve + f.ammo;
+
+  // Adaptive scarcity: less ammo = more spawns
+  const scarcityRatio = 1 - (totalAmmo / (f.magSize * 3));
+  const baseChance = 0.25 + Math.max(0, scarcityRatio) * 0.65;
+
+  const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g' }[ammoType];
+  if (!ammoItemKey) return;
+
+  const piles = totalAmmo === 0 ? rng(2, 3) : (Math.random() < baseChance ? rng(1, 2) : 0);
+
+  for (let i = 0; i < piles; i++) {
+    const room = pick(state.rooms.slice(1));
+    let amount;
+    if (ammoType === '12 gauge') {
+      amount = rng(2, 4); // shotgun shells, up to 6 per stack
+    } else {
+      // Pistol: each pile = 1 magazine worth of rounds
+      amount = f.magSize;
+    }
+    state.items.push({
+      ...ITEM_DEFS[ammoItemKey],
+      amount,
       x: rng(room.x + 1, room.x + room.w - 2),
       y: rng(room.y + 1, room.y + room.h - 2),
     });
@@ -817,8 +927,24 @@ function render() {
   // Show look mode description in message log
   if (state.lookMode) {
     const desc = describeTile(state.lookX, state.lookY);
+    const d = dist(state.player.x, state.player.y, state.lookX, state.lookY);
+    const f = state.player.firearm;
+    let aimInfo = '';
+    if (f && d >= 1) {
+      const overRange = Math.max(0, Math.floor(d) - f.range);
+      const aimBonus = Math.min(state.aimTurns * 0.10, 0.30);
+      const distPenalty = (Math.min(d, f.range) / f.range) * 0.10;
+      const rangePenalty = overRange * 0.10;
+      const hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+      const rangeTag = overRange > 0 ? ' <span class="msg-danger">OUT OF RANGE</span>' : '';
+      const aimTag = state.aimTurns > 0 ? ` Aim:+${Math.round(aimBonus*100)}%` : '';
+      aimInfo = ` | ${Math.round(hitChance*100)}% hit${aimTag}${rangeTag}`;
+    }
+    const rangeInfo = f ? ` | Dist: ${Math.floor(d)}/${f.range}` : '';
+    const canShoot = f && d >= 1 && f.ammo > 0 && f.reloading <= 0;
+    const hints = canShoot ? ' [F]Fire [.]Aim' : '';
     const log = document.getElementById('message-log');
-    log.innerHTML += `<div class="msg-lore">[Look] ${desc}</div>`;
+    log.innerHTML += `<div class="msg-lore">[Look${rangeInfo}${aimInfo}${hints}] ${desc}</div>`;
     log.scrollTop = log.scrollHeight;
   }
 }
@@ -826,12 +952,14 @@ function render() {
 function renderStats() {
   const p = state.player;
   const bar = document.getElementById('stats-bar');
+  const ammoDisp = getAmmoDisplay();
   bar.innerHTML = `
     <span class="stat stat-hp">HP: ${p.hp}/${p.maxHp}</span>
     <span class="stat stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>
     <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
     <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
-    <span class="stat stat-xp">Lv${p.level} XP: ${p.xp}/${p.xpNext}</span>
+    <span class="stat" style="color:#c0a030">${ammoDisp}</span>
+    <span class="stat stat-xp">Lv${p.level}</span>
     <span class="stat stat-gold">Gold: ${p.gold}</span>
     <span class="stat stat-dlvl">Depth: ${state.dlevel}</span>
     <span class="stat stat-dlvl">T: ${state.turn}</span>
@@ -921,6 +1049,263 @@ function recalcStats() {
   const p = state.player;
   p.atk = p.baseAtk + (p.weapon ? p.weapon.atk : 0);
   p.def = p.baseDef + (p.armor ? p.armor.def : 0);
+}
+
+const MAX_INVENTORY = 10;
+
+function inventoryUsed() {
+  const p = state.player;
+  let count = p.inventory.length;
+  if (p.weapon) count++;
+  if (p.armor) count++;
+  if (p.firearm) count++;
+  return count;
+}
+
+function inventoryFull() {
+  return inventoryUsed() >= MAX_INVENTORY;
+}
+
+// Count total reserve ammo of a given type across inventory
+function countReserveAmmo(ammoType) {
+  return state.player.inventory
+    .filter(it => it.type === 'ammo' && it.ammoType === ammoType)
+    .reduce((sum, it) => sum + (it.amount || 0), 0);
+}
+
+// Max stack size per ammo type (pistol mags = 1 slot each, shotgun shells stack to 6)
+function ammoMaxStack(ammoType) {
+  return ammoType === '12 gauge' ? 6 : 0; // 0 means no stacking (1 item = 1 slot)
+}
+
+function pickupAmmoItem(item) {
+  const p = state.player;
+  const maxStack = ammoMaxStack(item.ammoType);
+
+  if (maxStack > 0) {
+    // Stackable (shotgun shells): try to fit into existing stacks first
+    let remaining = item.amount;
+    for (const inv of p.inventory) {
+      if (inv.type === 'ammo' && inv.ammoType === item.ammoType && inv.amount < maxStack) {
+        const space = maxStack - inv.amount;
+        const add = Math.min(space, remaining);
+        inv.amount += add;
+        remaining -= add;
+        if (remaining <= 0) break;
+      }
+    }
+    // Any leftover goes into new slots
+    while (remaining > 0) {
+      if (inventoryFull()) {
+        addMsg(`No room for remaining ${item.ammoType}!`, 'msg-warning');
+        // Leave reduced item on ground
+        if (remaining < item.amount) {
+          item.amount = remaining;
+          addMsg(`Picked up ${item.amount - remaining} shells. ${remaining} left on ground.`, 'msg-good');
+        }
+        return;
+      }
+      const add = Math.min(maxStack, remaining);
+      p.inventory.push({ ...item, amount: add, x: undefined, y: undefined });
+      remaining -= add;
+    }
+    state.items = state.items.filter(it => it !== item);
+    addMsg(`You pick up ${item.amount}x ${item.name}. (${countReserveAmmo(item.ammoType)} in reserve)`, 'msg-good');
+  } else {
+    // Non-stackable (pistol magazines): each pickup = 1 inventory slot
+    if (inventoryFull()) {
+      addMsg('No room in inventory for ammo!', 'msg-warning');
+      return;
+    }
+    p.inventory.push({ ...item, x: undefined, y: undefined });
+    state.items = state.items.filter(it => it !== item);
+    addMsg(`You pick up a ${item.name}. (${countReserveAmmo(item.ammoType)} rounds in reserve)`, 'msg-good');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  FIREARMS & RANGED COMBAT
+// ═══════════════════════════════════════════════════════════════
+function assignStartingFirearm() {
+  const keys = Object.keys(FIREARM_DEFS);
+  const def = FIREARM_DEFS[pick(keys)];
+  state.player.firearm = {
+    ...def,
+    ammo: def.magSize,  // start fully loaded
+    reloading: 0,       // turns remaining to finish reload
+  };
+  // Start with reserve ammo in inventory
+  // Pistols: 1 spare magazine (1 inventory slot)
+  // Shotgun: 4 shells (1 inventory slot, stacks to 6)
+  const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g' }[def.ammoType];
+  if (def.id === 'shotgun') {
+    state.player.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: 4 });
+  } else {
+    state.player.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: def.magSize });
+  }
+}
+
+function canFire() {
+  const f = state.player.firearm;
+  if (!f) return { ok: false, reason: 'You have no firearm.' };
+  if (f.reloading > 0) return { ok: false, reason: `Still reloading... (${f.reloading} turn${f.reloading > 1 ? 's' : ''} left)` };
+  if (f.ammo <= 0) return { ok: false, reason: 'Chamber empty! Press [R] to reload.' };
+  return { ok: true };
+}
+
+function hasLineOfSight(x1, y1, x2, y2) {
+  // Bresenham-style LOS check
+  const dx = Math.abs(x2 - x1), dy = Math.abs(y2 - y1);
+  const sx = x1 < x2 ? 1 : -1, sy = y1 < y2 ? 1 : -1;
+  let err = dx - dy;
+  let x = x1, y = y1;
+  while (true) {
+    if (x === x2 && y === y2) return true;
+    const tile = state.map[y * WIDTH + x];
+    // Skip the starting tile, block on walls and closed doors
+    if (!(x === x1 && y === y1)) {
+      if (tile === TILE.WALL || tile === TILE.DOOR_CLOSED) return false;
+    }
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x += sx; }
+    if (e2 < dx) { err += dx; y += sy; }
+  }
+}
+
+function fireAtTarget(tx, ty) {
+  const p = state.player;
+  const f = p.firearm;
+  const check = canFire();
+  if (!check.ok) { addMsg(check.reason, 'msg-warning'); return false; }
+
+  // Face the target
+  updateFacingToward(tx, ty);
+
+  const d = dist(p.x, p.y, tx, ty);
+  if (d < 1) {
+    addMsg('Too close to fire — use melee!', 'msg-warning');
+    return false;
+  }
+
+  // Check LOS
+  if (!hasLineOfSight(p.x, p.y, tx, ty)) {
+    addMsg('No clear line of sight!', 'msg-warning');
+    return false;
+  }
+
+  // Expend ammo
+  f.ammo--;
+  addMsg(f.sound, 'msg-danger');
+
+  // Find monster at target
+  const monster = state.monsters.find(m => m.x === tx && m.y === ty && m.hp > 0);
+  if (!monster) {
+    addMsg('The shot strikes stone. Nothing there.', 'msg-info');
+    // Gunfire wakes nearby monsters
+    wakeNearbyMonsters();
+    return true;
+  }
+
+  // Accuracy: base + aim bonus - distance penalty - out-of-range penalty
+  const aimBonus = Math.min(state.aimTurns * 0.10, 0.30); // cap at +30%
+  const overRange = Math.max(0, Math.floor(d) - f.range);
+  const rangePenalty = overRange * 0.10; // -10% per tile beyond range
+  const distPenalty = (Math.min(d, f.range) / f.range) * 0.10; // slight penalty within range
+  const hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+  if (Math.random() > hitChance) {
+    addMsg(`You fire at the ${monster.name} — miss! (${Math.round(hitChance * 100)}% chance)`, 'msg-warning');
+    wakeNearbyMonsters();
+    return true;
+  }
+
+  // Damage (reduced at extreme range)
+  let dmg = Math.max(1, rng(f.damage[0], f.damage[1]) - Math.floor(monster.def / 2));
+  if (overRange > 0) dmg = Math.max(1, Math.floor(dmg * 0.7)); // 30% damage reduction beyond range
+  monster.hp -= dmg;
+  addMsg(`You shoot the ${monster.name} for ${dmg} damage!`, 'msg-danger');
+
+  if (monster.hp <= 0) {
+    addMsg(`The ${monster.name} collapses!`, 'msg-good');
+    p.xp += monster.xp;
+    checkLevelUp();
+  }
+
+  // Gunfire wakes everything nearby
+  wakeNearbyMonsters();
+  return true;
+}
+
+function wakeNearbyMonsters() {
+  // Gunshots are LOUD — wake all monsters within a large radius
+  const GUNSHOT_RADIUS = 20;
+  for (const m of state.monsters) {
+    if (!m.awake && m.hp > 0) {
+      const d = dist(state.player.x, state.player.y, m.x, m.y);
+      if (d < GUNSHOT_RADIUS) {
+        m.awake = true;
+      }
+    }
+  }
+}
+
+function tryReload() {
+  const p = state.player;
+  const f = p.firearm;
+  if (!f) { addMsg('You have no firearm.', 'msg-warning'); return; }
+  if (f.reloading > 0) { addMsg('Already reloading...', 'msg-info'); return; }
+  if (f.ammo >= f.magSize) { addMsg('Already fully loaded.', 'msg-info'); return; }
+
+  const reserve = countReserveAmmo(f.ammoType);
+  if (reserve <= 0) {
+    addMsg(`No ${f.ammoType} rounds left!`, 'msg-danger');
+    return;
+  }
+
+  f.reloading = f.reloadTurns;
+  addMsg(`Reloading ${f.name}... (${f.reloadTurns} turns)`, 'msg-info');
+}
+
+function tickReload() {
+  const p = state.player;
+  const f = p.firearm;
+  if (!f || f.reloading <= 0) return;
+  f.reloading--;
+  if (f.reloading <= 0) {
+    const maxStack = ammoMaxStack(f.ammoType);
+    if (maxStack > 0) {
+      // Shotgun: pull individual shells from inventory stacks
+      const needed = f.magSize - f.ammo;
+      let loaded = 0;
+      for (let i = p.inventory.length - 1; i >= 0 && loaded < needed; i--) {
+        const inv = p.inventory[i];
+        if (inv.type === 'ammo' && inv.ammoType === f.ammoType) {
+          const take = Math.min(inv.amount, needed - loaded);
+          inv.amount -= take;
+          loaded += take;
+          if (inv.amount <= 0) p.inventory.splice(i, 1);
+        }
+      }
+      f.ammo += loaded;
+    } else {
+      // Pistol: swap magazine — consume one mag item from inventory, discard old partial
+      const magIndex = p.inventory.findIndex(it => it.type === 'ammo' && it.ammoType === f.ammoType);
+      if (magIndex >= 0) {
+        const mag = p.inventory[magIndex];
+        f.ammo = mag.amount; // load the full magazine
+        p.inventory.splice(magIndex, 1); // consume the mag
+      }
+    }
+    const remaining = countReserveAmmo(f.ammoType);
+    addMsg(`Reload complete. ${f.name}: ${f.ammo}/${f.magSize} (${remaining} in reserve)`, 'msg-good');
+  }
+}
+
+function getAmmoDisplay() {
+  const f = state.player.firearm;
+  if (!f) return '';
+  if (f.reloading > 0) return `${f.name}: RELOADING (${f.reloading})`;
+  const reserve = countReserveAmmo(f.ammoType);
+  return `${f.ammo}/${f.magSize} [${reserve}]`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1098,12 +1483,23 @@ function tryMove(dx, dy) {
   state.player.x = nx;
   state.player.y = ny;
 
+  // Moving cancels an in-progress reload
+  if (state.player.firearm && state.player.firearm.reloading > 0) {
+    state.player.firearm.reloading = 0;
+    addMsg('Reload interrupted!', 'msg-warning');
+  }
+
   // Auto-pickup gold
   const goldItem = state.items.find(it => it.x === nx && it.y === ny && it.type === 'gold');
   if (goldItem) {
     state.player.gold += goldItem.amount;
     addMsg(`You pick up ${goldItem.amount} gold coins.`, 'msg-good');
     state.items = state.items.filter(it => it !== goldItem);
+  }
+  // Auto-pickup ammo (into inventory)
+  const ammoItem = state.items.find(it => it.x === nx && it.y === ny && it.type === 'ammo');
+  if (ammoItem) {
+    pickupAmmoItem(ammoItem);
   }
 
   // Altar interaction
@@ -1143,8 +1539,10 @@ function tryPickup() {
     state.items = state.items.filter(it => it !== item);
     recalcStats();
     addMsg(`You don the ${item.name}. DEF is now ${state.player.def}.`, 'msg-good');
+  } else if (item.type === 'ammo') {
+    pickupAmmoItem(item);
   } else {
-    if (state.player.inventory.length >= 10) {
+    if (inventoryFull()) {
       addMsg('Your inventory is full!', 'msg-warning');
       return;
     }
@@ -1212,6 +1610,9 @@ function endPlayerTurn() {
     state.player.hp++;
   }
 
+  // Tick reload progress
+  tickReload();
+
   checkSanityEvents();
 
   if (state.player.sanity <= 0 && !state.gameOver) {
@@ -1228,17 +1629,29 @@ function endPlayerTurn() {
 // ═══════════════════════════════════════════════════════════════
 function renderInventory() {
   const p = state.player;
-  let text = `<span class="title">═══ INVENTORY ═══</span>\n\n`;
+  const used = inventoryUsed();
+  let text = `<span class="title">═══ INVENTORY (${used}/${MAX_INVENTORY}) ═══</span>\n\n`;
+
+  // Equipped items (not numbered — can't use from here)
+  text += `  <span class="subtitle">Equipped:</span>\n`;
+  text += `    Firearm: ${p.firearm ? `${p.firearm.name} (${p.firearm.ammo}/${p.firearm.magSize})` : '(none)'}\n`;
+  text += `    Melee:   ${p.weapon ? p.weapon.name : '(none)'}\n`;
+  text += `    Armor:   ${p.armor ? p.armor.name : '(none)'}\n`;
+  text += '\n';
+
+  // Carried items
   if (p.inventory.length === 0) {
-    text += '  (empty)\n';
+    text += '  (nothing carried)\n';
   } else {
     for (let i = 0; i < p.inventory.length; i++) {
       const item = p.inventory[i];
-      text += `  <span class="key">[${i + 1}]</span> ${item.name} — ${item.desc}\n`;
+      let label = item.name;
+      if (item.type === 'ammo') {
+        label += ` (${item.amount})`;
+      }
+      text += `  <span class="key">[${i + 1}]</span> ${label} — ${item.desc}\n`;
     }
   }
-  text += `\n  Weapon: ${p.weapon ? p.weapon.name : '(none)'}\n`;
-  text += `  Armor:  ${p.armor ? p.armor.name : '(none)'}\n`;
   text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[ESC/I]</span> Close`;
   showOverlay(text);
 }
@@ -1251,18 +1664,32 @@ function renderHelp() {
   to confront what lurks below — if your mind holds.</span>
 
   <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
-  <span class="key">Turn:</span>      [R] clockwise / [T] counter-clockwise
+  <span class="key">Look/Aim:</span>  [L] — move cursor to inspect or aim
+  <span class="key">Fire:</span>      [F] in look mode — shoot at cursor
+  <span class="key">Reload:</span>    [R] — reload your firearm (takes turns)
+  <span class="key">Turn:</span>      [[] / []] — rotate facing
   <span class="key">Wait:</span>      [.] or [5] — skip your turn
   <span class="key">Pick up:</span>   [G] — grab item on ground
   <span class="key">Descend:</span>   [>] — use stairs down
   <span class="key">Inventory:</span> [I] — open inventory
   <span class="key">Use item:</span>  [1-9] in inventory screen
-  <span class="key">Look:</span>      [L] — inspect tiles with a cursor
   <span class="key">Help:</span>      [?] — this screen
+
+  <span class="subtitle">FIREARMS</span>
+  You start with a random 1920s firearm. Press [L]
+  to enter aim mode, move the cursor to a target,
+  and [F] to fire. Press [.] to spend a turn
+  steadying your aim (+10% accuracy per turn, up
+  to +30%). You CAN fire beyond max range, but
+  accuracy drops -10% per extra tile. Ammo shown
+  as loaded/capacity [reserve]. [R] to reload
+  (takes multiple turns — moving cancels it).
+  Gunfire is LOUD and wakes nearby monsters.
+  Ammo and equipment take inventory slots!
 
   <span class="subtitle">VISION</span>
   You see in a 120° cone in your facing direction.
-  Moving updates your facing. [R]/[T] to turn in
+  Moving updates your facing. [[] / []] to turn in
   place. You have limited peripheral vision behind
   you. Closed doors (+) block line of sight — bump
   into them to open.
@@ -1280,7 +1707,7 @@ function renderHelp() {
   <span style="color:#8B6914">+</span> Door (closed)  <span style="color:#8B6914">/</span> Door (open)
   <span style="color:#9b59b6">_</span> Altar  <span style="color:#1a5276">~</span> Water  <span style="color:#f1c40f">$</span> Gold
   <span style="color:#2ecc71">!</span> Potion <span style="color:#aaa">)</span> Weapon <span style="color:#8B6914">[</span> Armor  <span style="color:#6a0dad">?</span> Scroll
-  <span style="color:#f1c40f">*</span> Elder Sign
+  <span style="color:#c0a030">=</span> Ammo   <span style="color:#f1c40f">*</span> Elder Sign
 
   <span class="key">[ESC/?]</span> Close this screen`;
   showOverlay(text);
@@ -1537,9 +1964,11 @@ document.addEventListener('keydown', (e) => {
       gameStarted = true;
       hideOverlay();
       initState();
+      assignStartingFirearm();
       generateLevel();
       addMsg('You descend into the darkness beneath Arkham...', 'msg-lore');
       addMsg('The trapdoor slams shut above you.', 'msg-warning');
+      addMsg(`You grip your ${state.player.firearm.name} (${state.player.firearm.ammo}/${state.player.firearm.magSize}).`, 'msg-info');
       render();
       return;
     }
@@ -1638,11 +2067,43 @@ document.addEventListener('keydown', (e) => {
       const [dx, dy] = lookMoveMap[e.key];
       state.lookX = clamp(state.lookX + dx, 0, WIDTH - 1);
       state.lookY = clamp(state.lookY + dy, 0, HEIGHT - 1);
+      // Update player facing toward cursor
+      updateFacingToward(state.lookX, state.lookY);
+      // Reset aim if cursor moved to a different target
+      if (state.lookX !== state.aimX || state.lookY !== state.aimY) {
+        state.aimTurns = 0;
+        state.aimX = state.lookX;
+        state.aimY = state.lookY;
+      }
       render();
+      return;
+    }
+    if (e.key === 'f' || e.key === 'F') {
+      // Fire at cursor target
+      const fired = fireAtTarget(state.lookX, state.lookY);
+      if (fired) {
+        state.lookMode = false;
+        state.aimTurns = 0;
+        state.monsters = state.monsters.filter(m => m.hp > 0);
+        endPlayerTurn();
+      } else {
+        render();
+      }
+      return;
+    }
+    if (e.key === '.' || e.key === '5') {
+      // Aim action: spend a turn to steady your aim at the current cursor position
+      state.aimX = state.lookX;
+      state.aimY = state.lookY;
+      state.aimTurns++;
+      const bonus = Math.min(state.aimTurns * 10, 30);
+      addMsg(`You steady your aim... (+${bonus}% accuracy, ${state.aimTurns} turn${state.aimTurns > 1 ? 's' : ''})`, 'msg-info');
+      endPlayerTurn(); // costs a real turn — monsters move!
       return;
     }
     if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
       state.lookMode = false;
+      state.aimTurns = 0;
       addMsg('Look mode ended.', 'msg-info');
       render();
       return;
@@ -1696,14 +2157,19 @@ document.addEventListener('keydown', (e) => {
       state.lookMode = true;
       state.lookX = state.player.x;
       state.lookY = state.player.y;
-      addMsg('Look mode — move cursor to inspect tiles. [ESC/L] to exit.', 'msg-info');
+      addMsg('Look mode — move cursor to inspect. [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
       render();
       break;
-    case 'r': case 'R': // Rotate clockwise
+    case 'r': case 'R': // Reload firearm
+      tryReload();
+      if (state.player.firearm && state.player.firearm.reloading > 0) endPlayerTurn();
+      else render();
+      break;
+    case ']': // Rotate clockwise
       state.player.facing = rotateFacing(state.player.facing, 1);
       render();
       break;
-    case 't': case 'T': // Rotate counter-clockwise
+    case '[': // Rotate counter-clockwise
       state.player.facing = rotateFacing(state.player.facing, -1);
       render();
       break;
