@@ -155,63 +155,63 @@ const MONSTER_DEFS = {
   rat: {
     name: 'sewer rat', ch: 'r', fg: '#8B6914',
     hp: 4, atk: 1, def: 0, xp: 2, speed: 1,
-    sanCost: 0, desc: 'A mangy sewer rat.',
+    sanDice: null, desc: 'A mangy sewer rat.',
     hint: 'Something small skitters in the dark.',
     minLevel: 1, aggression: 3 // gives up quickly
   },
   cultist: {
     name: 'cultist', ch: 'c', fg: '#cc3333',
     hp: 8, atk: 3, def: 1, xp: 5, speed: 1,
-    sanCost: 1, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
+    sanDice: { pass: [0,1], fail: [1,4] }, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
     hint: 'A hunched, human-shaped figure.',
     minLevel: 1, aggression: 8 // zealous pursuers
   },
   ghoul: {
     name: 'ghoul', ch: 'g', fg: '#6B8E23',
     hp: 14, atk: 5, def: 2, xp: 10, speed: 1,
-    sanCost: 3, desc: 'A hunched, dog-faced corpse-eater.',
+    sanDice: { pass: [0,1], fail: [1,6] }, desc: 'A hunched, dog-faced corpse-eater.',
     hint: 'A crouching shape that reeks of the grave.',
     minLevel: 2, aggression: 6 // persistent scavengers
   },
   deepOne: {
     name: 'deep one', ch: 'D', fg: '#1abc9c',
     hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
-    sanCost: 5, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
+    sanDice: { pass: [0,2], fail: [1,6] }, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
     hint: 'Something wet and glistening. It smells of brine.',
     minLevel: 3, aggression: 10 // territorial and relentless
   },
   miGo: {
     name: 'mi-go', ch: 'M', fg: '#e74c3c',
     hp: 18, atk: 6, def: 2, xp: 20, speed: 2,
-    sanCost: 7, desc: 'A fungoid crustacean from Yuggoth.',
+    sanDice: { pass: [1,3], fail: [1,8] }, desc: 'A fungoid crustacean from Yuggoth.',
     hint: 'A buzzing, insectoid shape that defies geometry.',
     minLevel: 4, aggression: 12 // intelligent hunters
   },
   nightgaunt: {
     name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
     hp: 25, atk: 8, def: 4, xp: 30, speed: 1,
-    sanCost: 8, desc: 'A faceless, rubbery, horned flyer.',
+    sanDice: { pass: [1,4], fail: [1,8] }, desc: 'A faceless, rubbery, horned flyer.',
     hint: 'A dark, winged silhouette with no face.',
     minLevel: 5, aggression: 5 // ambush predators, lose interest fast
   },
   dimensionalShambler: {
     name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
     hp: 35, atk: 10, def: 5, xp: 45, speed: 1,
-    sanCost: 10, desc: 'It lurches between planes of existence.',
+    sanDice: { pass: [1,4], fail: [1,10] }, desc: 'It lurches between planes of existence.',
     hint: 'A shape that flickers, as though not fully here.',
     minLevel: 6, aggression: 7
   },
   starSpawn: {
     name: 'star spawn', ch: 'X', fg: '#6a0dad',
     hp: 50, atk: 14, def: 7, xp: 80, speed: 1,
-    sanCost: 15, desc: 'A towering mass of tentacles and malice.',
+    sanDice: { pass: [1,6], fail: [1,12] }, desc: 'A towering mass of tentacles and malice.',
     hint: 'Something enormous and wrong. Your eyes refuse to focus.',
     minLevel: 7, aggression: 15 // nearly relentless
   },
   shoggoth: {
     name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
     hp: 80, atk: 18, def: 8, xp: 150, speed: 1,
-    sanCost: 20, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
+    sanDice: { pass: [1,6], fail: [1,20] }, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
     hint: 'A vast, formless mass that fills the passage. Do not look closer.',
     minLevel: 8, aggression: 20 // never forgets
   }
@@ -308,7 +308,8 @@ const FIREARM_DEFS = {
     damage: [5, 9],     // [min, max]
     range: 8,
     magSize: 7,
-    reloadTurns: 2,     // turns spent reloading
+    reloadTurns: 2,     // fixed turns to swap magazine
+    reloadStyle: 'magazine', // swap entire mag at once
     ammoType: '.45 ACP',
     accuracy: 0.65,     // base hit chance (before aiming)
     sound: 'The pistol CRACKS.',
@@ -321,7 +322,8 @@ const FIREARM_DEFS = {
     damage: [4, 7],
     range: 6,
     magSize: 6,
-    reloadTurns: 3,     // revolvers are slower to reload
+    reloadTurns: 1,     // 1 turn per bullet
+    reloadStyle: 'single',  // load one round per turn
     ammoType: '.38 Special',
     accuracy: 0.60,
     sound: 'The revolver BARKS.',
@@ -334,7 +336,8 @@ const FIREARM_DEFS = {
     damage: [10, 18],   // huge damage, but short range and 2 shots
     range: 4,
     magSize: 2,
-    reloadTurns: 3,
+    reloadTurns: 1,     // 1 turn per shell
+    reloadStyle: 'single',  // load one shell per turn
     ammoType: '12 gauge',
     accuracy: 0.70,     // hard to miss with a shotgun
     sound: 'The shotgun BOOMS.',
@@ -442,6 +445,10 @@ function initState() {
     aimX: -1,        // target being aimed at
     aimY: -1,
     lastSanityEvent: 100,
+    lastSpookyTurn: 0,
+    stairsFound: false,
+    stairsX: -1,
+    stairsY: -1,
     turn: 0,
   };
 }
@@ -576,6 +583,9 @@ function generateLevelInner() {
   // Place stairs in last room
   const endRoom = state.rooms[state.rooms.length - 1];
   state.map[endRoom.cy * WIDTH + endRoom.cx] = TILE.STAIRS_DOWN;
+  state.stairsX = endRoom.cx;
+  state.stairsY = endRoom.cy;
+  state.stairsFound = false;
 
   // Place altar in a random middle room
   if (state.rooms.length > 2) {
@@ -681,6 +691,7 @@ function spawnMonsters() {
       def: Math.floor(def.def * scale),
       awake: false,
       identified: false,
+      sanChecked: false,
       lastSeenX: -1, lastSeenY: -1,
       pursuitTimer: 0,
     });
@@ -822,6 +833,9 @@ function computeFOV() {
       const idx = iy * WIDTH + ix;
       state.visible[idx] = 1;
       state.explored[idx] = 1;
+      if (!state.stairsFound && ix === state.stairsX && iy === state.stairsY) {
+        state.stairsFound = true;
+      }
       if (state.map[idx] === TILE.WALL || state.map[idx] === TILE.DOOR_CLOSED) break;
     }
   }
@@ -838,7 +852,7 @@ const TILE_DESCRIPTIONS = {
   [TILE.DOOR_CLOSED]: 'A closed wooden door.',
   [TILE.DOOR_OPEN]: 'An open doorway.',
   [TILE.STAIRS_DOWN]: 'A staircase descending into deeper darkness.',
-  [TILE.ALTAR]: 'A dark altar carved with eldritch symbols.',
+  [TILE.ALTAR]: 'A dark altar carved with eldritch symbols. It hums with strange energy. [G] Pray',
   [TILE.WATER]: 'A pool of dark, stagnant water.',
 };
 
@@ -943,6 +957,10 @@ function render() {
         const tile = state.map[idx];
         const td = TILE_DISPLAY[tile];
         html += `<span style="color:${td.fg}">${td.ch}</span>`;
+      } else if (state.stairsFound && x === state.stairsX && y === state.stairsY) {
+        // Stairs stay highlighted once discovered
+        const td = TILE_DISPLAY[TILE.STAIRS_DOWN];
+        html += `<span style="color:${td.fg}">${td.ch}</span>`;
       } else if (explored) {
         const tile = state.map[idx];
         const td = TILE_DISPLAY[tile];
@@ -1031,15 +1049,58 @@ function monsterDisplayColor(monster) {
   return monster.identified ? monster.fg : '#888';
 }
 
+// Roll SAN: roll d100 under current sanity = pass, else fail
+// dice is { pass: [min,max], fail: [min,max] } or null for no SAN effect
+function rollSanity(dice, label) {
+  if (!dice) return 0;
+  const san = state.player.sanity;
+  const roll = rng(1, 100);
+  const passed = roll <= san;
+  const [lo, hi] = passed ? dice.pass : dice.fail;
+  const sanLoss = lo === 0 && hi === 0 ? 0 : rng(lo, hi);
+  if (sanLoss > 0) {
+    state.player.sanity = Math.max(0, state.player.sanity - sanLoss);
+    if (passed) {
+      addMsg(`${label} You steel yourself. -${sanLoss} SAN`, 'msg-warning');
+    } else {
+      addMsg(`${label} -${sanLoss} SAN`, 'msg-sanity');
+    }
+  } else if (passed && dice.fail[1] > 0) {
+    addMsg(`${label} You keep your composure.`, 'msg-info');
+  }
+  return sanLoss;
+}
+
 function identifyMonster(monster) {
   if (monster.identified) return;
   monster.identified = true;
-  if (monster.sanCost > 0) {
-    const sanLoss = rng(1, monster.sanCost);
-    state.player.sanity -= sanLoss;
-    addMsg(`You recognize it — a ${monster.name}! The sight shakes your resolve. -${sanLoss} SAN`, 'msg-sanity');
+  if (!monster.sanChecked) {
+    // First encounter via deliberate identification — roll SAN
+    monster.sanChecked = true;
+    if (monster.sanDice) {
+      rollSanity(monster.sanDice, `You recognize it — a ${monster.name}!`);
+    } else {
+      addMsg(`You identify it as a ${monster.name}.`, 'msg-info');
+    }
   } else {
-    addMsg(`You identify it as a ${monster.name}.`, 'msg-info');
+    // Already took the SAN hit on sight — just reveal the name
+    addMsg(`You recognize it as a ${monster.name}.`, 'msg-info');
+  }
+}
+
+// Called when a monster first enters the player's field of view (once per instance)
+function monsterSightSanCheck(monster) {
+  if (monster.sanChecked) return;
+  monster.sanChecked = true;
+  if (!monster.sanDice) {
+    // Mundane creature — just a stir message, no SAN roll
+    addMsg('Something stirs nearby.', 'msg-warning');
+    return;
+  }
+  if (monster.identified) {
+    rollSanity(monster.sanDice, `The sight of the ${monster.name} tests your resolve.`);
+  } else {
+    rollSanity(monster.sanDice, `Something in the darkness fills you with dread.`);
   }
 }
 
@@ -1094,12 +1155,8 @@ function monsterAttackPlayer(monster) {
   const mName = monsterDisplayName(monster);
   meleeAttack(monster, state.player, `The ${mName}`, 'you');
 
-  // Sanity damage from eldritch monsters
-  if (monster.sanCost > 0 && Math.random() < 0.3) {
-    const sanLoss = rng(1, monster.sanCost);
-    state.player.sanity -= sanLoss;
-    addMsg(`The sight of the ${mName} erodes your sanity! -${sanLoss} SAN`, 'msg-sanity');
-  }
+  // SAN check on first sight (if not already triggered)
+  if (!monster.sanChecked) monsterSightSanCheck(monster);
 
   if (state.player.hp <= 0) {
     addMsg(`You have been slain by the ${mName}!`, 'msg-danger');
@@ -1337,7 +1394,17 @@ function tryReload() {
   const p = state.player;
   const f = p.firearm;
   if (!f) { addMsg('You have no firearm.', 'msg-warning'); return; }
-  if (f.reloading > 0) { addMsg('Already reloading...', 'msg-info'); return; }
+  if (f.reloading > 0) {
+    // For single-load weapons, pressing R again while reloading stops early
+    if (f.reloadStyle === 'single') {
+      f.reloading = 0;
+      const remaining = countReserveAmmo(f.ammoType);
+      addMsg(`You stop reloading. ${f.name}: ${f.ammo}/${f.magSize} (${remaining} in reserve)`, 'msg-info');
+    } else {
+      addMsg('Already reloading...', 'msg-info');
+    }
+    return;
+  }
   if (f.ammo >= f.magSize) { addMsg('Already fully loaded.', 'msg-info'); return; }
 
   const reserve = countReserveAmmo(f.ammoType);
@@ -1346,49 +1413,88 @@ function tryReload() {
     return;
   }
 
-  f.reloading = f.reloadTurns;
-  addMsg(`Reloading ${f.name}... (${f.reloadTurns} turns)`, 'msg-info');
+  if (f.reloadStyle === 'magazine') {
+    f.reloading = f.reloadTurns;
+    addMsg(`Reloading ${f.name}... (${f.reloadTurns} turns)`, 'msg-info');
+  } else {
+    // Single-load: mark as reloading, first round loads on next tick
+    const needed = f.magSize - f.ammo;
+    const avail = countReserveAmmo(f.ammoType);
+    const toLoad = Math.min(needed, avail);
+    f.reloading = toLoad;
+    addMsg(`Loading ${f.name}... (${toLoad} round${toLoad > 1 ? 's' : ''})`, 'msg-info');
+  }
 }
 
 function tickReload() {
   const p = state.player;
   const f = p.firearm;
   if (!f || f.reloading <= 0) return;
-  f.reloading--;
-  if (f.reloading <= 0) {
-    const maxStack = ammoMaxStack(f.ammoType);
-    if (maxStack > 0) {
-      // Shotgun: pull individual shells from inventory stacks
-      const needed = f.magSize - f.ammo;
-      let loaded = 0;
-      for (let i = p.inventory.length - 1; i >= 0 && loaded < needed; i--) {
-        const inv = p.inventory[i];
-        if (inv.type === 'ammo' && inv.ammoType === f.ammoType) {
-          const take = Math.min(inv.amount, needed - loaded);
-          inv.amount -= take;
-          loaded += take;
-          if (inv.amount <= 0) p.inventory.splice(i, 1);
-        }
-      }
-      f.ammo += loaded;
-    } else {
-      // Pistol: swap magazine — consume one mag item from inventory, discard old partial
+
+  if (f.reloadStyle === 'magazine') {
+    // Magazine reload: count down, then swap the whole mag
+    f.reloading--;
+    if (f.reloading <= 0) {
       const magIndex = p.inventory.findIndex(it => it.type === 'ammo' && it.ammoType === f.ammoType);
       if (magIndex >= 0) {
         const mag = p.inventory[magIndex];
-        f.ammo = mag.amount; // load the full magazine
-        p.inventory.splice(magIndex, 1); // consume the mag
+        f.ammo = mag.amount;
+        p.inventory.splice(magIndex, 1);
+      }
+      const remaining = countReserveAmmo(f.ammoType);
+      addMsg(`Reload complete. ${f.name}: ${f.ammo}/${f.magSize} (${remaining} in reserve)`, 'msg-good');
+    }
+  } else {
+    // Single-load: load one round per tick
+    let loaded = false;
+    const maxStack = ammoMaxStack(f.ammoType);
+    if (maxStack > 0) {
+      // Stackable ammo (shotgun shells): pull one from a stack
+      for (let i = p.inventory.length - 1; i >= 0; i--) {
+        const inv = p.inventory[i];
+        if (inv.type === 'ammo' && inv.ammoType === f.ammoType) {
+          inv.amount--;
+          if (inv.amount <= 0) p.inventory.splice(i, 1);
+          loaded = true;
+          break;
+        }
+      }
+    } else {
+      // Non-stackable ammo (revolver mags used as single rounds)
+      const magIndex = p.inventory.findIndex(it => it.type === 'ammo' && it.ammoType === f.ammoType);
+      if (magIndex >= 0) {
+        const mag = p.inventory[magIndex];
+        mag.amount--;
+        if (mag.amount <= 0) p.inventory.splice(magIndex, 1);
+        loaded = true;
       }
     }
-    const remaining = countReserveAmmo(f.ammoType);
-    addMsg(`Reload complete. ${f.name}: ${f.ammo}/${f.magSize} (${remaining} in reserve)`, 'msg-good');
+    if (loaded) {
+      f.ammo++;
+      f.reloading--;
+      if (f.reloading <= 0 || f.ammo >= f.magSize) {
+        f.reloading = 0;
+        const remaining = countReserveAmmo(f.ammoType);
+        addMsg(`Reload complete. ${f.name}: ${f.ammo}/${f.magSize} (${remaining} in reserve)`, 'msg-good');
+      }
+    } else {
+      // Ran out of ammo mid-reload
+      f.reloading = 0;
+      const remaining = countReserveAmmo(f.ammoType);
+      addMsg(`Out of ammo. ${f.name}: ${f.ammo}/${f.magSize} (${remaining} in reserve)`, 'msg-warning');
+    }
   }
 }
 
 function getAmmoDisplay() {
   const f = state.player.firearm;
   if (!f) return '';
-  if (f.reloading > 0) return `${f.name}: RELOADING (${f.reloading})`;
+  if (f.reloading > 0) {
+    if (f.reloadStyle === 'single') {
+      return `${f.name}: LOADING ${f.ammo}/${f.magSize} (${f.reloading} left)`;
+    }
+    return `${f.name}: RELOADING (${f.reloading})`;
+  }
   const reserve = countReserveAmmo(f.ammoType);
   return `${f.ammo}/${f.magSize} [${reserve}]`;
 }
@@ -1416,7 +1522,7 @@ function monsterTurn(monster) {
     monster.lastSeenX = px;
     monster.lastSeenY = py;
     monster.pursuitTimer = monster.aggression;
-    addMsg(`Something stirs in the darkness!`, 'msg-warning');
+    monsterSightSanCheck(monster);
   }
 
   if (!monster.awake) return;
@@ -1506,7 +1612,7 @@ function checkSanityEvents() {
   }
   state.lastSanityEvent = san;
 
-  // Random hallucination at low sanity
+  // Random hallucination at low sanity (cosmetic, no SAN cost)
   if (san < 30 && Math.random() < 0.05) {
     addMsg(pick([
       'The floor writhes with invisible worms.',
@@ -1517,33 +1623,62 @@ function checkSanityEvents() {
     ]), 'msg-sanity');
   }
 
-  // Ambient sanity decay — spooky events
-  // Base chance ~4%, scaling up with depth; something happens roughly every 15-25 turns
-  const spookyChance = 0.04 + state.dlevel * 0.008;
-  if (Math.random() < spookyChance) {
-    const sanLoss = rng(1, 1 + Math.floor(state.dlevel / 3));
-    state.player.sanity = Math.max(0, state.player.sanity - sanLoss);
-    const events = [
-      'A cold draft carries the scent of brine and decay.',
-      'You hear wet footsteps echoing from somewhere... above you?',
-      'The walls glisten with a mucus-like sheen that wasn\'t there before.',
-      'A distant, rhythmic chanting pulses at the edge of hearing.',
-      'Your lantern flickers. Something moved in the dark.',
-      'You find scratches in the stone: "THEY SEE THROUGH THE WALLS".',
-      'A pipe organ drones from deep below — a single, sustained note.',
-      'The corridor behind you looks... different. Longer.',
-      'You step in something wet. You refuse to look down.',
-      'A rat scurries past, then stops and turns to stare at you.',
-      'The air tastes of copper and ozone.',
-      'Somewhere, a door slams. There are no doors nearby.',
-      'Your shadow does not move when you do. Then it catches up.',
-      'The stone beneath your feet is warm. It pulses.',
-      'You hear your own voice whispering from the next room.',
-      'A droplet of something dark falls from the ceiling onto your hand.',
-      'The geometry of this passage is subtly, nauseatingly wrong.',
-      'You blink and the room seems to have shifted a few inches to the left.',
-    ];
-    addMsg(pick(events) + (sanLoss > 1 ? ` (-${sanLoss} SAN)` : ' (-1 SAN)'), 'msg-sanity');
+  // Ambient spooky events — only when no enemies are active (awake)
+  const anyAwake = state.monsters.some(m => m.hp > 0 && m.awake);
+  if (anyAwake) return;
+
+  // Timer-based: trigger every 20-30 turns of peaceful exploration
+  const turnsSinceLast = state.turn - state.lastSpookyTurn;
+  const threshold = rng(20, 30);
+  if (turnsSinceLast < threshold) return;
+
+  state.lastSpookyTurn = state.turn;
+
+  // Mild events (most common) — SAN roll: 0/1d4
+  const mildEvents = [
+    'A cold draft carries the scent of brine and decay.',
+    'You hear wet footsteps echoing from somewhere... above you?',
+    'Your lantern flickers. Something moved in the dark.',
+    'You step in something wet. You refuse to look down.',
+    'A rat scurries past, then stops and turns to stare at you.',
+    'The air tastes of copper and ozone.',
+    'Somewhere, a door slams. There are no doors nearby.',
+    'A droplet of something dark falls from the ceiling onto your hand.',
+    'A distant, rhythmic chanting pulses at the edge of hearing.',
+    'A pipe organ drones from deep below — a single, sustained note.',
+  ];
+  // Surreal events (deeper / lower sanity) — SAN roll: 1d4/1d8
+  const surealEvents = [
+    'The walls glisten with a mucus-like sheen that wasn\'t there before.',
+    'The corridor behind you looks... different. Longer.',
+    'Your shadow does not move when you do. Then it catches up.',
+    'The stone beneath your feet is warm. It pulses.',
+    'You hear your own voice whispering from the next room.',
+    'The geometry of this passage is subtly, nauseatingly wrong.',
+    'You blink and the room seems to have shifted a few inches to the left.',
+    'You find scratches in the stone: "THEY SEE THROUGH THE WALLS".',
+  ];
+
+  // Deeper levels and lower sanity increase chance of surreal events
+  const surealChance = Math.min(0.6, 0.1 + state.dlevel * 0.08 + (100 - san) * 0.003);
+  const isSureal = Math.random() < surealChance;
+  const event = isSureal ? pick(surealEvents) : pick(mildEvents);
+  const dice = isSureal ? { pass: [1,4], fail: [1,8] } : { pass: [0,0], fail: [1,4] };
+
+  if (isSureal) {
+    rollSanity(dice, event);
+  } else {
+    // Mild events: roll SAN quietly — show flavor on pass, SAN loss on fail
+    const san = state.player.sanity;
+    const roll = rng(1, 100);
+    if (roll <= san) {
+      // Passed — just atmosphere, no SAN loss
+      addMsg(event, 'msg-lore');
+    } else {
+      const sanLoss = rng(1, 4);
+      state.player.sanity = Math.max(0, state.player.sanity - sanLoss);
+      addMsg(`${event} -${sanLoss} SAN`, 'msg-sanity');
+    }
   }
 }
 
@@ -1551,21 +1686,22 @@ function checkSanityEvents() {
 //  ALTAR INTERACTION
 // ═══════════════════════════════════════════════════════════════
 function interactAltar() {
-  addMsg('You kneel before the dark altar...', 'msg-lore');
+  addMsg('You kneel before the dark altar and whisper a prayer to whatever listens...', 'msg-lore');
   const roll = rng(1, 6);
   if (roll <= 2) {
     const heal = rng(10, 20);
     state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
-    addMsg(`A cold light washes over you. +${heal} HP.`, 'msg-good');
+    addMsg(`A pale, merciful light washes over your wounds. +${heal} HP.`, 'msg-good');
   } else if (roll <= 4) {
     const sanLoss = rng(3, 8);
     state.player.sanity -= sanLoss;
-    addMsg(`Visions of impossible geometries flood your mind! -${sanLoss} SAN.`, 'msg-sanity');
+    addMsg(`Something answers — visions of impossible geometries flood your mind! -${sanLoss} SAN.`, 'msg-sanity');
   } else {
     state.player.baseAtk += 1;
-    state.player.sanity -= rng(5, 10);
+    const sanLoss = rng(5, 10);
+    state.player.sanity -= sanLoss;
     recalcStats();
-    addMsg('Dark power surges through you! +1 ATK... but at what cost?', 'msg-lore');
+    addMsg(`Dark power courses through your veins! +1 ATK, -${sanLoss} SAN.`, 'msg-lore');
   }
 }
 
@@ -1621,13 +1757,10 @@ function tryMove(dx, dy) {
   // Auto-pickup items at first step
   doAutoPickup(nx, ny);
 
-  // Altar interaction
+  // Altar — describe on step, require G to pray
   if (state.map[ny * WIDTH + nx] === TILE.ALTAR) {
-    interactAltar();
-    state.map[ny * WIDTH + nx] = TILE.FLOOR;
+    addMsg('A dark altar carved with eldritch symbols. Strange energies emanate from it. [G] Pray', 'msg-lore');
     p.running = false;
-    endPlayerTurn();
-    return;
   }
 
   // Run mode: take a second step if running and have stamina
@@ -1676,6 +1809,15 @@ function doAutoPickup(px, py) {
 function tryPickup() {
   if (state.gameOver) return;
   const px = state.player.x, py = state.player.y;
+
+  // Pray at altar
+  if (state.map[py * WIDTH + px] === TILE.ALTAR) {
+    interactAltar();
+    state.map[py * WIDTH + px] = TILE.FLOOR;
+    endPlayerTurn();
+    return;
+  }
+
   const item = state.items.find(it => it.x === px && it.y === py);
   if (!item) {
     addMsg('There is nothing here to pick up.', 'msg-info');
@@ -1832,6 +1974,7 @@ function renderHelp() {
 
   <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
   <span class="key">Look/Aim:</span>  [L] — move cursor to inspect or aim
+  <span class="key">Cycle:</span>     [ / ] in look mode — snap to next/prev target
   <span class="key">Examine:</span>   [Enter] in look mode — identify a creature
   <span class="key">Fire:</span>      [F] in look mode — shoot at cursor
   <span class="key">Reload:</span>    [R] — reload your firearm (takes turns)
@@ -1891,7 +2034,10 @@ function renderHelp() {
   Laudanum and rest can restore your fragile mind.
 
   <span class="subtitle">ALTARS</span>
-  Dark altars offer power — but demand a price.
+  Dark altars are scattered through the dungeon. Step
+  onto one to sense its presence, then press [G] to
+  pray. The altar's blessing may heal, enlighten, or
+  corrupt — but the price is never clear until paid.
 
   <span class="subtitle">SYMBOLS</span>
   <span style="color:#f1c40f;font-weight:bold">→</span> You   <span style="color:#5a5a6e">#</span> Wall   <span style="color:#3a3a4a">.</span> Floor   <span style="color:#eee">></span> Stairs
@@ -2270,6 +2416,55 @@ document.addEventListener('keydown', (e) => {
       render();
       return;
     }
+    if (e.key === '[' || e.key === ']') {
+      // Cycle cursor between visible entities (monsters, items, stairs, altars)
+      const entities = [];
+      for (const m of state.monsters) {
+        if (m.hp > 0 && state.visible[m.y * WIDTH + m.x]) {
+          entities.push({ x: m.x, y: m.y });
+        }
+      }
+      for (const it of state.items) {
+        if (state.visible[it.y * WIDTH + it.x]) {
+          entities.push({ x: it.x, y: it.y });
+        }
+      }
+      for (let i = 0; i < WIDTH * HEIGHT; i++) {
+        if (state.visible[i]) {
+          const tile = state.map[i];
+          if (tile === TILE.STAIRS_DOWN || tile === TILE.ALTAR) {
+            entities.push({ x: i % WIDTH, y: Math.floor(i / WIDTH) });
+          }
+        }
+      }
+      if (entities.length > 0) {
+        // Sort by distance from player for consistent ordering
+        const px = state.player.x, py = state.player.y;
+        entities.sort((a, b) => {
+          const da = (a.x - px) * (a.x - px) + (a.y - py) * (a.y - py);
+          const db = (b.x - px) * (b.x - px) + (b.y - py) * (b.y - py);
+          return da - db || a.y - b.y || a.x - b.x;
+        });
+        // Find current cursor position in the list
+        const curIdx = entities.findIndex(e => e.x === state.lookX && e.y === state.lookY);
+        let nextIdx;
+        if (e.key === ']') {
+          nextIdx = curIdx === -1 ? 0 : (curIdx + 1) % entities.length;
+        } else {
+          nextIdx = curIdx === -1 ? entities.length - 1 : (curIdx - 1 + entities.length) % entities.length;
+        }
+        state.lookX = entities[nextIdx].x;
+        state.lookY = entities[nextIdx].y;
+        updateFacingToward(state.lookX, state.lookY);
+        state.aimTurns = 0;
+        state.aimX = state.lookX;
+        state.aimY = state.lookY;
+      } else {
+        addMsg('Nothing visible to focus on.', 'msg-info');
+      }
+      render();
+      return;
+    }
     if (e.key === 'f' || e.key === 'F') {
       // Fire at cursor target
       const fired = fireAtTarget(state.lookX, state.lookY);
@@ -2360,7 +2555,7 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'l': case 'L': // Look
       state.lookMode = true;
-      addMsg('Look mode — move cursor to inspect. [Enter] Examine · [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
+      addMsg('Look mode — move cursor to inspect. [/] Cycle targets · [Enter] Examine · [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
       render();
       break;
     case 'r': case 'R': // Reload firearm
