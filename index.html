@@ -344,6 +344,131 @@ const FIREARM_DEFS = {
   },
 };
 
+// ── Dreamlands Shop ────────────────────────────────────────
+const DREAM_ITEMS = [
+  {
+    id: 'moonMilk',
+    name: 'Saucer of Moon-Milk',
+    desc: 'A luminous white liquid. It tastes of starlight.',
+    cost: 8,
+    effect(p) {
+      const gain = rng(5, 10);
+      const actual = Math.min(gain, p.maxSanity - p.sanity);
+      p.sanity += actual;
+      return actual > 0 ? `The milk soothes your troubled mind. +${actual} SAN.` : 'Your mind is already at ease.';
+    },
+  },
+  {
+    id: 'catNap',
+    name: 'Dreamcat\'s Embrace',
+    desc: 'The cat curls against you. A deep peace settles in.',
+    cost: 20,
+    effect(p) {
+      const gain = rng(15, 25);
+      const actual = Math.min(gain, p.maxSanity - p.sanity);
+      p.sanity += actual;
+      return actual > 0 ? `Warmth and purring. The darkness recedes. +${actual} SAN.` : 'You are already as sane as you\'ll ever be.';
+    },
+  },
+  {
+    id: 'dreamHerb',
+    name: 'Herbs of Ulthar',
+    desc: 'Silvery leaves that heal wounds sustained in the waking world.',
+    cost: 8,
+    effect(p) {
+      const gain = rng(10, 20);
+      const actual = Math.min(gain, p.maxHp - p.hp);
+      p.hp += actual;
+      return actual > 0 ? `The herbs mend your flesh. +${actual} HP.` : 'You are already in good health.';
+    },
+  },
+  {
+    id: 'dreamAmmo',
+    name: 'Waking-World Ammunition',
+    desc: 'Cartridges that exist in both dreams and reality.',
+    cost: 12,
+    effect(p) {
+      const f = p.firearm;
+      if (!f) return 'You have no firearm to load.';
+      const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g' }[f.ammoType];
+      if (!ammoItemKey) return 'Strange... the ammunition dissolves.';
+      const amount = f.id === 'shotgun' ? rng(3, 5) : f.magSize;
+      const item = { ...ITEM_DEFS[ammoItemKey], amount };
+      // Try to add to inventory
+      if (inventoryFull()) {
+        return 'Your pack is too full to carry more.';
+      }
+      pickupAmmoItem({ ...item, x: -1, y: -1 });
+      return `The cat produces ${amount}x ${f.ammoType} from thin air.`;
+    },
+  },
+  {
+    id: 'dreamShield',
+    name: 'Veil of Pleasant Dreams',
+    desc: 'Your next SAN check automatically succeeds.',
+    cost: 15,
+    effect(p) {
+      p.dreamShield = true;
+      return 'A gentle haze settles over your consciousness. You feel protected.';
+    },
+  },
+  {
+    id: 'catsEye',
+    name: 'Cat\'s Eye Jewel',
+    desc: 'See further in the dark for the rest of this floor.',
+    cost: 18,
+    effect(p) {
+      state.catsEyeActive = true;
+      return 'The jewel pulses. The darkness pulls back from your gaze.';
+    },
+  },
+  {
+    id: 'curiousIdol',
+    name: 'Curious Idol',
+    desc: '+2 ATK, but permanently lose 5 max SAN.',
+    cost: 30,
+    effect(p) {
+      p.baseAtk += 2;
+      p.maxSanity = Math.max(10, p.maxSanity - 5);
+      p.sanity = Math.min(p.sanity, p.maxSanity);
+      recalcStats();
+      return 'Dark power flows into your arms. Something in you... diminishes.';
+    },
+  },
+];
+
+const CAT_GREETINGS = [
+  'A sleek cat with knowing eyes regards you from atop a pile of silk cushions.\n  "Welcome, dreamer. We don\'t get many of your kind here anymore."',
+  'The cat is grooming itself on a velvet divan. It pauses.\n  "Ah. You again. Or is this your first time? Hard to tell with mortals."',
+  'A one-eared tabby with ancient eyes blinks slowly at you.\n  "The Waking World has been unkind to you, I see. Come, rest."',
+  'The cat stretches luxuriously across an impossible silk cushion.\n  "You smell of gunpowder and fear. The usual."',
+  'A black cat with stars in its fur materializes on a shelf of scrolls.\n  "The cats of Ulthar welcome you. Briefly."',
+];
+
+const CAT_FAREWELLS = [
+  '"Time to wake up, dreamer." The silks dissolve into cold stone.',
+  '"Try not to die. It upsets the mice." The dream fades.',
+  '"Until next time — if there is a next time." The cat\'s smile lingers.',
+  'The cat yawns. "Go. The waking world needs its fools."',
+  '"Remember: in Ulthar, no one may harm a cat." Darkness.',
+];
+
+const CAT_COMMENTS_LOW_SAN = [
+  '"Your mind is... threadbare. I can see the fraying."',
+  '"You\'re barely holding together, aren\'t you? How fascinating."',
+  '"The cats have pooled our resources. You need them more than we do."',
+];
+
+const CAT_COMMENTS_LOW_GOLD = [
+  '"Light of coin, heavy of burden. A common affliction."',
+  '"Perhaps next time you\'ll pick up the shiny things, hmm?"',
+];
+
+const CAT_COMMENTS_DEEP = [
+  '"You\'ve gone deeper than most. The cats are... impressed."',
+  '"The things below are not meant for mortal eyes. But you knew that."',
+];
+
 // ── Sanity event table ──────────────────────────────────────
 const SANITY_EVENTS = [
   { threshold: 60, msg: 'The shadows seem to shift when you look away...', type: 'msg-sanity' },
@@ -432,8 +557,10 @@ function initState() {
       armor: null,   // also occupies inventory slot
       firearm: null, // { ...def, ammo: N, reloading: 0 } also occupies inventory slot
       turnCount: 0,
+      dreamShield: false,
     },
     dlevel: 1,
+    catsEyeActive: false,
     messages: [],
     gameOver: false,
     showInventory: false,
@@ -821,7 +948,8 @@ function computeFOV() {
     const inCone = diff <= CONE_HALF_ANGLE;
     const inPeripheral = diff <= PERIPHERAL_HALF_ANGLE;
     // Forward cone: full range. Sides: short range. Behind: nothing.
-    const maxRange = inCone ? FOV_FRONT_RADIUS : (inPeripheral ? PERIPHERAL_RADIUS : 0);
+    const bonus = state.catsEyeActive ? 3 : 0;
+    const maxRange = inCone ? (FOV_FRONT_RADIUS + bonus) : (inPeripheral ? (PERIPHERAL_RADIUS + Math.floor(bonus / 2)) : 0);
 
     const dx = Math.cos(rayAngle);
     const dy = Math.sin(rayAngle);
@@ -1053,6 +1181,19 @@ function monsterDisplayColor(monster) {
 // dice is { pass: [min,max], fail: [min,max] } or null for no SAN effect
 function rollSanity(dice, label) {
   if (!dice) return 0;
+  // Dream Shield: auto-pass the next SAN check
+  if (state.player.dreamShield) {
+    state.player.dreamShield = false;
+    const [lo, hi] = dice.pass;
+    const sanLoss = lo === 0 && hi === 0 ? 0 : rng(lo, hi);
+    if (sanLoss > 0) {
+      state.player.sanity = Math.max(0, state.player.sanity - sanLoss);
+      addMsg(`${label} A veil of pleasant dreams shields your mind. -${sanLoss} SAN`, 'msg-info');
+    } else {
+      addMsg(`${label} A veil of pleasant dreams shields your mind entirely.`, 'msg-good');
+    }
+    return sanLoss;
+  }
   const san = state.player.sanity;
   const roll = rng(1, 100);
   const passed = roll <= san;
@@ -1147,7 +1288,26 @@ function playerAttackMonster(monster) {
   if (monster.hp <= 0) {
     addMsg(`The ${mName} is destroyed!`, 'msg-good');
     p.xp += monster.xp;
+    monsterKillSanRecovery(monster);
     checkLevelUp();
+  }
+}
+
+function monsterKillSanRecovery(monster) {
+  // Only recover SAN from identified eldritch creatures
+  if (!monster.identified || !monster.sanDice) return;
+  const failMax = monster.sanDice.fail[1];
+  // Recovery is roughly half the fail die maximum, minimum 1
+  const recovery = Math.max(1, Math.floor(failMax / 2));
+  const actual = Math.min(recovery, state.player.maxSanity - state.player.sanity);
+  if (actual > 0) {
+    state.player.sanity += actual;
+    const msgs = [
+      `Destroying the ${monster.name} reasserts your grip on reality. +${actual} SAN`,
+      `The ${monster.name} falls. You feel a wave of clarity wash over you. +${actual} SAN`,
+      `With the ${monster.name} defeated, the world feels slightly more sane. +${actual} SAN`,
+    ];
+    addMsg(pick(msgs), 'msg-good');
   }
 }
 
@@ -1369,6 +1529,7 @@ function fireAtTarget(tx, ty) {
   if (monster.hp <= 0) {
     addMsg(`The ${mName} collapses!`, 'msg-good');
     p.xp += monster.xp;
+    monsterKillSanRecovery(monster);
     checkLevelUp();
   }
 
@@ -1865,16 +2026,14 @@ function tryDescend() {
     return;
   }
   state.dlevel++;
-  addMsg(`You descend to depth ${state.dlevel}. The air grows heavier...`, 'msg-lore');
-  if (state.dlevel === 3) addMsg('A distant piping echoes through the tunnels...', 'msg-sanity');
-  if (state.dlevel === 5) addMsg('The geometry of these corridors defies Euclidean reason.', 'msg-sanity');
-  if (state.dlevel === 7) addMsg('Ph\'nglui mglw\'nafh Cthulhu R\'lyeh wgah\'nagl fhtagn!', 'msg-lore');
   if (state.dlevel >= 9) {
     victoryScreen();
     return;
   }
-  generateLevel();
-  render();
+  // Reset cat's eye for the previous floor
+  state.catsEyeActive = false;
+  // Enter the Dreamlands shop
+  enterDreamlands();
 }
 
 function useInventoryItem(index) {
@@ -2032,6 +2191,15 @@ function renderHelp() {
   Encountering eldritch horrors drains your sanity.
   If it reaches 0, you are lost to madness.
   Laudanum and rest can restore your fragile mind.
+  Slaying identified eldritch creatures recovers
+  some SAN — proof that horrors can be overcome.
+
+  <span class="subtitle">THE DREAMLANDS</span>
+  Between floors, exhaustion pulls you into a
+  dream. The cats of Ulthar run a peculiar shop
+  where gold buys sanity restoration, supplies,
+  and stranger things. Not every dream offers
+  the same wares — choose carefully.
 
   <span class="subtitle">ALTARS</span>
   Dark altars are scattered through the dungeon. Step
@@ -2282,6 +2450,146 @@ function victoryScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  DREAMLANDS SHOP
+// ═══════════════════════════════════════════════════════════════
+let dreamPhase = ''; // '', 'intro', 'shop', 'farewell'
+let dreamStock = [];  // items available this visit
+let dreamCursor = 0;  // selected item index
+let dreamGreeting = '';
+let dreamComment = '';
+
+function enterDreamlands() {
+  dreamPhase = 'intro';
+  dreamGreeting = pick(CAT_GREETINGS);
+
+  // Pick a contextual comment
+  const p = state.player;
+  if (p.sanity < 30 && CAT_COMMENTS_LOW_SAN.length) {
+    dreamComment = pick(CAT_COMMENTS_LOW_SAN);
+  } else if (p.gold < 10 && CAT_COMMENTS_LOW_GOLD.length) {
+    dreamComment = pick(CAT_COMMENTS_LOW_GOLD);
+  } else if (state.dlevel >= 5 && CAT_COMMENTS_DEEP.length) {
+    dreamComment = pick(CAT_COMMENTS_DEEP);
+  } else {
+    dreamComment = '';
+  }
+
+  // Stock 3-5 items, randomized from the pool
+  const pool = [...DREAM_ITEMS];
+  // Always include at least one SAN item
+  const sanItems = pool.filter(i => i.id === 'moonMilk' || i.id === 'catNap');
+  const otherItems = pool.filter(i => i.id !== 'moonMilk' && i.id !== 'catNap');
+  dreamStock = [pick(sanItems)];
+  // Shuffle others and pick 2-3 more
+  const shuffled = otherItems.sort(() => Math.random() - 0.5);
+  const extra = rng(2, 3);
+  for (let i = 0; i < Math.min(extra, shuffled.length); i++) {
+    dreamStock.push(shuffled[i]);
+  }
+  // Scale prices slightly with depth
+  const priceScale = 1 + (state.dlevel - 2) * 0.1;
+  dreamStock = dreamStock.map(item => ({
+    ...item,
+    cost: Math.floor(item.cost * priceScale),
+  }));
+  dreamCursor = 0;
+
+  renderDreamIntro();
+}
+
+function renderDreamIntro() {
+  showOverlay(`<span class="title">
+  ╔═══════════════════════════════════╗
+  ║       THE   D R E A M L A N D S  ║
+  ╚═══════════════════════════════════╝</span>
+
+  <span class="subtitle">As you descend, exhaustion overtakes you.
+  The stone steps soften beneath your feet.
+  The walls become silk. The air tastes of
+  jasmine and moonlight.
+
+  You are dreaming.</span>
+
+  ${dreamGreeting}
+  ${dreamComment ? '\n  ' + dreamComment : ''}
+
+  <span class="key">[ENTER]</span> Approach the cat's wares
+  <span class="key">[ESC]</span> Wake up immediately`);
+}
+
+function renderDreamShop() {
+  const p = state.player;
+  let text = `<span class="title">═══ THE CAT'S WARES ═══</span>
+  <span style="color:#f39c12">Gold: ${p.gold}</span>  <span class="stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>  <span class="stat-hp">HP: ${p.hp}/${p.maxHp}</span>\n\n`;
+
+  for (let i = 0; i < dreamStock.length; i++) {
+    const item = dreamStock[i];
+    const selected = i === dreamCursor;
+    const affordable = p.gold >= item.cost;
+    const marker = selected ? '<span class="key">▸</span>' : ' ';
+    const costColor = affordable ? '#f39c12' : '#cc3333';
+    const nameColor = selected ? '#f1c40f' : '#b0b0b0';
+    text += `  ${marker} <span style="color:${nameColor}">${item.name}</span>`;
+    text += `  <span style="color:${costColor}">${item.cost} gold</span>\n`;
+    if (selected) {
+      text += `    <span class="subtitle">${item.desc}</span>\n`;
+    }
+    text += '\n';
+  }
+
+  text += `\n  <span class="key">[↑/↓]</span> Browse  <span class="key">[ENTER]</span> Buy  <span class="key">[ESC]</span> Wake up`;
+
+  showOverlay(text);
+}
+
+function renderDreamFarewell() {
+  const farewell = pick(CAT_FAREWELLS);
+  showOverlay(`<span class="title">
+  ╔═══════════════════════════════════╗
+  ║       THE   D R E A M L A N D S  ║
+  ╚═══════════════════════════════════╝</span>
+
+  <span class="subtitle">${farewell}</span>
+
+  <span class="key">[ENTER]</span> Awaken on depth ${state.dlevel}`);
+}
+
+function dreamBuy() {
+  const item = dreamStock[dreamCursor];
+  const p = state.player;
+  if (p.gold < item.cost) {
+    // Can't afford — the cat comments
+    addMsg('"You lack the coin, dreamer. Come back richer — or more desperate."', 'msg-warning');
+    renderDreamShop();
+    return;
+  }
+  p.gold -= item.cost;
+  const msg = item.effect(p);
+  addMsg(msg, 'msg-good');
+  // Remove purchased item from stock (one-time purchase)
+  dreamStock.splice(dreamCursor, 1);
+  if (dreamCursor >= dreamStock.length) dreamCursor = Math.max(0, dreamStock.length - 1);
+  if (dreamStock.length === 0) {
+    addMsg('"That\'s all I have for you, dreamer."', 'msg-lore');
+    dreamPhase = 'farewell';
+    renderDreamFarewell();
+  } else {
+    renderDreamShop();
+  }
+}
+
+function leaveDreamlands() {
+  dreamPhase = '';
+  hideOverlay();
+  addMsg(`You descend to depth ${state.dlevel}. The air grows heavier...`, 'msg-lore');
+  if (state.dlevel === 3) addMsg('A distant piping echoes through the tunnels...', 'msg-sanity');
+  if (state.dlevel === 5) addMsg('The geometry of these corridors defies Euclidean reason.', 'msg-sanity');
+  if (state.dlevel === 7) addMsg('Ph\'nglui mglw\'nafh Cthulhu R\'lyeh wgah\'nagl fhtagn!', 'msg-lore');
+  generateLevel();
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  INPUT HANDLING
 // ═══════════════════════════════════════════════════════════════
 let gameStarted = false;
@@ -2325,6 +2633,38 @@ document.addEventListener('keydown', (e) => {
       titleScreen();
       state.showHelp = false;
       return;
+    }
+    return;
+  }
+
+  // Dreamlands shop
+  if (dreamPhase) {
+    e.preventDefault();
+    if (dreamPhase === 'intro') {
+      if (e.key === 'Enter') {
+        dreamPhase = 'shop';
+        renderDreamShop();
+      } else if (e.key === 'Escape') {
+        dreamPhase = 'farewell';
+        renderDreamFarewell();
+      }
+    } else if (dreamPhase === 'shop') {
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+        dreamCursor = (dreamCursor - 1 + dreamStock.length) % dreamStock.length;
+        renderDreamShop();
+      } else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+        dreamCursor = (dreamCursor + 1) % dreamStock.length;
+        renderDreamShop();
+      } else if (e.key === 'Enter') {
+        dreamBuy();
+      } else if (e.key === 'Escape') {
+        dreamPhase = 'farewell';
+        renderDreamFarewell();
+      }
+    } else if (dreamPhase === 'farewell') {
+      if (e.key === 'Enter') {
+        leaveDreamlands();
+      }
     }
     return;
   }
