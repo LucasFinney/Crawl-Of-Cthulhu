@@ -222,7 +222,12 @@ const ITEM_DEFS = {
   healingHerb: {
     name: 'healing herb', ch: '!', fg: '#2ecc71', type: 'consumable',
     desc: 'A pungent herb that restores vitality.',
-    use(player) { const h = rng(8,16); player.hp = Math.min(player.maxHp, player.hp + h); return `You consume the herb and recover ${h} HP.`; }
+    use(player) {
+      let h = rng(8,16);
+      if (player.profession === 'doctor') h = Math.floor(h * 1.5);
+      player.hp = Math.min(player.maxHp, player.hp + h);
+      return `You consume the herb and recover ${h} HP.`;
+    }
   },
   laudanum: {
     name: 'laudanum', ch: '!', fg: '#9b59b6', type: 'consumable',
@@ -344,6 +349,96 @@ const FIREARM_DEFS = {
   },
 };
 
+// ── Profession definitions ─────────────────────────────────
+const PROFESSIONS = {
+  soldier: {
+    id: 'soldier',
+    name: 'Soldier',
+    desc: '"The war ended, but the nightmares didn\'t."',
+    hp: 35, maxHp: 35,
+    sanity: 80, maxSanity: 80,
+    stamina: 12, maxStamina: 12,
+    baseAtk: 3, baseDef: 1,
+    firearm: 'm1911',
+    extraAmmo: 2,  // extra magazines/stacks beyond default
+    melee: { name: 'combat knife', ch: ')', fg: '#aaa', type: 'weapon', atk: 3, desc: 'A military-issue trench knife. +3 ATK.' },
+    items: ['laudanum'],
+    hpRegenRate: 5,     // 1 HP every N turns
+    staminaRegenRate: 2, // 1 STM every N turns
+    passive: 'Steady hands: no accuracy penalty for first shot without aiming.',
+    passiveId: 'steadyHands',
+  },
+  doctor: {
+    id: 'doctor',
+    name: 'Doctor',
+    desc: '"First, do no harm. But down here, harm finds you."',
+    hp: 25, maxHp: 25,
+    sanity: 95, maxSanity: 95,
+    stamina: 8, maxStamina: 8,
+    baseAtk: 1, baseDef: 0,
+    firearm: 'revolver38',
+    extraAmmo: 0,
+    melee: null,
+    items: ['medicalBag', 'medicalBag', 'morphine'],
+    hpRegenRate: 3,       // faster HP regen (every 3 turns vs 5)
+    staminaRegenRate: 2,
+    passive: 'Field medicine: HP regenerates faster. Healing items are 50% more effective.',
+    passiveId: 'fieldMedicine',
+  },
+  detective: {
+    id: 'detective',
+    name: 'Detective',
+    desc: '"The case file said \'missing persons.\' It lied."',
+    hp: 30, maxHp: 30,
+    sanity: 90, maxSanity: 90,
+    stamina: 10, maxStamina: 10,
+    baseAtk: 2, baseDef: 0,
+    firearm: 'revolver38',
+    extraAmmo: 1,
+    melee: null,
+    items: ['hipFlask', 'hipFlask'],
+    hpRegenRate: 5,
+    staminaRegenRate: 2,
+    passive: 'Keen eye: wider field of view (150° cone).',
+    passiveId: 'keenEye',
+  },
+};
+
+// ── Profession-specific items ─────────────────────────────
+const PROF_ITEMS = {
+  medicalBag: {
+    name: 'medical bag', ch: '!', fg: '#2ecc71', type: 'consumable',
+    desc: 'A leather medical kit with bandages and sutures. Heals 12-20 HP.',
+    use(player) {
+      let h = rng(12, 20);
+      if (state.player.profession === 'doctor') h = Math.floor(h * 1.5);
+      const actual = Math.min(h, player.maxHp - player.hp);
+      player.hp += actual;
+      return actual > 0 ? `You treat your wounds with practiced skill. +${actual} HP.` : 'You have no wounds to treat.';
+    }
+  },
+  morphine: {
+    name: 'morphine syrette', ch: '!', fg: '#9b59b6', type: 'consumable',
+    desc: 'Military-issue painkiller. Restores 15 HP but -10% accuracy for 10 turns.',
+    use(player) {
+      const h = Math.min(15, player.maxHp - player.hp);
+      player.hp += h;
+      player.morphineTurns = 10;
+      return h > 0 ? `The morphine dulls the pain. +${h} HP. Your vision blurs slightly.` : 'You feel no pain already.';
+    }
+  },
+  hipFlask: {
+    name: 'hip flask', ch: '!', fg: '#8B6914', type: 'consumable',
+    desc: 'Cheap bourbon. Steadies the nerves. Restores 8-15 SAN.',
+    use(player) {
+      const s = rng(8, 15);
+      const actual = Math.min(s, player.maxSanity - player.sanity);
+      player.sanity += actual;
+      return actual > 0 ? `The bourbon burns going down. Your hands stop shaking. +${actual} SAN.` : 'Your mind is already steady.';
+    }
+  },
+};
+
 // ── Dreamlands Shop ────────────────────────────────────────
 const DREAM_ITEMS = [
   {
@@ -376,7 +471,8 @@ const DREAM_ITEMS = [
     desc: 'Silvery leaves that heal wounds sustained in the waking world.',
     cost: 40,
     effect(p) {
-      const gain = rng(10, 20);
+      let gain = rng(10, 20);
+      if (p.profession === 'doctor') gain = Math.floor(gain * 1.5);
       const actual = Math.min(gain, p.maxHp - p.hp);
       p.hp += actual;
       return actual > 0 ? `The herbs mend your flesh. +${actual} HP.` : 'You are already in good health.';
@@ -533,7 +629,8 @@ function angleDiff(a, b) {
 // ═══════════════════════════════════════════════════════════════
 let state = {};
 
-function initState() {
+function initState(profId) {
+  const prof = PROFESSIONS[profId] || PROFESSIONS.detective;
   state = {
     map: new Uint8Array(WIDTH * HEIGHT),
     visible: new Uint8Array(WIDTH * HEIGHT),
@@ -544,20 +641,25 @@ function initState() {
     player: {
       x: 0, y: 0,
       facing: 1, // 0=N,1=E,2=S,3=W (start facing east/right)
-      hp: 30, maxHp: 30,
-      sanity: 100, maxSanity: 100,
-      stamina: 10, maxStamina: 10, // stamina for running and melee
+      hp: prof.hp, maxHp: prof.maxHp,
+      sanity: prof.sanity, maxSanity: prof.maxSanity,
+      stamina: prof.stamina, maxStamina: prof.maxStamina,
       running: false,
-      atk: 2, def: 0,
-      baseAtk: 2, baseDef: 0,
+      atk: prof.baseAtk, def: prof.baseDef,
+      baseAtk: prof.baseAtk, baseDef: prof.baseDef,
       xp: 0, level: 1, xpNext: 15,
       gold: 0,
       inventory: [],
-      weapon: null,  // melee weapon (also occupies inventory slot)
-      armor: null,   // also occupies inventory slot
-      firearm: null, // { ...def, ammo: N, reloading: 0 } also occupies inventory slot
+      weapon: null,
+      armor: null,
+      firearm: null,
       turnCount: 0,
       dreamShield: false,
+      profession: prof.id,
+      hpRegenRate: prof.hpRegenRate,
+      staminaRegenRate: prof.staminaRegenRate,
+      passiveId: prof.passiveId,
+      morphineTurns: 0,
     },
     dlevel: 1,
     catsEyeActive: false,
@@ -568,8 +670,8 @@ function initState() {
     lookMode: false,
     lookX: 0,
     lookY: 0,
-    aimTurns: 0,     // turns spent aiming at current target
-    aimX: -1,        // target being aimed at
+    aimTurns: 0,
+    aimX: -1,
     aimY: -1,
     lastSanityEvent: 100,
     lastSpookyTurn: 0,
@@ -927,7 +1029,8 @@ function spawnAmmo() {
 // ═══════════════════════════════════════════════════════════════
 //  FIELD OF VIEW (Directional cone + peripheral)
 // ═══════════════════════════════════════════════════════════════
-const CONE_HALF_ANGLE = Math.PI / 3;     // 60° each side = 120° forward cone
+const CONE_HALF_ANGLE_DEFAULT = Math.PI / 3;     // 60° each side = 120° forward cone
+const CONE_HALF_ANGLE_WIDE = Math.PI * 75 / 180; // 75° each side = 150° for detective
 const PERIPHERAL_HALF_ANGLE = Math.PI * 0.75; // 135° each side = 270° peripheral zone
 const PERIPHERAL_RADIUS = 2;             // short range for side vision
 const FOV_FRONT_RADIUS = FOV_RADIUS;     // full range forward
@@ -945,7 +1048,8 @@ function computeFOV() {
   for (let i = 0; i < numRays; i++) {
     const rayAngle = (i / numRays) * Math.PI * 2;
     const diff = Math.abs(angleDiff(rayAngle, facingAngle));
-    const inCone = diff <= CONE_HALF_ANGLE;
+    const coneHalf = (state.player.passiveId === 'keenEye') ? CONE_HALF_ANGLE_WIDE : CONE_HALF_ANGLE_DEFAULT;
+    const inCone = diff <= coneHalf;
     const inPeripheral = diff <= PERIPHERAL_HALF_ANGLE;
     // Forward cone: full range. Sides: short range. Behind: nothing.
     const bonus = state.catsEyeActive ? 3 : 0;
@@ -1113,10 +1217,13 @@ function render() {
     let aimInfo = '';
     if (f && d >= 1) {
       const overRange = Math.max(0, Math.floor(d) - f.range);
-      const aimBonus = Math.min(state.aimTurns * 0.10, 0.30);
+      let eAim = state.aimTurns;
+      if (state.player.passiveId === 'steadyHands' && eAim === 0) eAim = 1;
+      const aimBonus = Math.min(eAim * 0.10, 0.30);
       const distPenalty = (Math.min(d, f.range) / f.range) * 0.10;
       const rangePenalty = overRange * 0.10;
-      const hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+      let hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+      if (state.player.morphineTurns > 0) hitChance = clamp(hitChance - 0.10, 0.05, 0.95);
       const rangeTag = overRange > 0 ? ' <span class="msg-danger">OUT OF RANGE</span>' : '';
       const aimTag = state.aimTurns > 0 ? ` Aim:+${Math.round(aimBonus*100)}%` : '';
       aimInfo = ` | ${Math.round(hitChance*100)}% hit${aimTag}${rangeTag}`;
@@ -1141,7 +1248,7 @@ function renderStats() {
     <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
     <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
     <span class="stat" style="color:#c0a030">${ammoDisp}</span>
-    <span class="stat stat-xp">Lv${p.level}</span>
+    <span class="stat stat-xp">Lv${p.level} ${(PROFESSIONS[p.profession] || {}).name || ''}</span>
     <span class="stat stat-gold">Gold: ${p.gold}</span>
     <span class="stat stat-dlvl">Depth: ${state.dlevel}</span>
     <span class="stat stat-dlvl">T: ${state.turn}</span>
@@ -1426,23 +1533,44 @@ function pickupAmmoItem(item) {
 // ═══════════════════════════════════════════════════════════════
 //  FIREARMS & RANGED COMBAT
 // ═══════════════════════════════════════════════════════════════
-function assignStartingFirearm() {
-  const keys = Object.keys(FIREARM_DEFS);
-  const def = FIREARM_DEFS[pick(keys)];
-  state.player.firearm = {
+function assignStartingLoadout(profId) {
+  const prof = PROFESSIONS[profId] || PROFESSIONS.detective;
+  const p = state.player;
+
+  // Assign firearm
+  const def = FIREARM_DEFS[prof.firearm];
+  p.firearm = {
     ...def,
-    ammo: def.magSize,  // start fully loaded
-    reloading: 0,       // turns remaining to finish reload
+    ammo: def.magSize,
+    reloading: 0,
   };
-  // Start with reserve ammo in inventory
-  // Pistols: 1 spare magazine (1 inventory slot)
-  // Shotgun: 4 shells (1 inventory slot, stacks to 6)
+
+  // Starting reserve ammo (1 base + profession extra)
   const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g' }[def.ammoType];
-  if (def.id === 'shotgun') {
-    state.player.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: 4 });
-  } else {
-    state.player.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: def.magSize });
+  const baseMags = 1 + prof.extraAmmo;
+  for (let i = 0; i < baseMags; i++) {
+    if (def.id === 'shotgun') {
+      p.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: 4 });
+    } else {
+      p.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: def.magSize });
+    }
   }
+
+  // Assign melee weapon if profession has one
+  if (prof.melee) {
+    p.weapon = { ...prof.melee };
+    p.atk = p.baseAtk + p.weapon.atk;
+  }
+
+  // Add profession starting items
+  for (const itemId of prof.items) {
+    const itemDef = PROF_ITEMS[itemId] || ITEM_DEFS[itemId];
+    if (itemDef) {
+      p.inventory.push({ ...itemDef });
+    }
+  }
+
+  recalcStats();
 }
 
 function canFire() {
@@ -1507,11 +1635,16 @@ function fireAtTarget(tx, ty) {
   }
 
   // Accuracy: base + aim bonus - distance penalty - out-of-range penalty
-  const aimBonus = Math.min(state.aimTurns * 0.10, 0.30); // cap at +30%
+  let effectiveAimTurns = state.aimTurns;
+  // Soldier passive: steady hands — first shot counts as 1 aim turn
+  if (state.player.passiveId === 'steadyHands' && effectiveAimTurns === 0) effectiveAimTurns = 1;
+  const aimBonus = Math.min(effectiveAimTurns * 0.10, 0.30); // cap at +30%
   const overRange = Math.max(0, Math.floor(d) - f.range);
   const rangePenalty = overRange * 0.10; // -10% per tile beyond range
   const distPenalty = (Math.min(d, f.range) / f.range) * 0.10; // slight penalty within range
-  const hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+  let hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+  // Morphine accuracy penalty
+  if (state.player.morphineTurns > 0) hitChance = clamp(hitChance - 0.10, 0.05, 0.95);
   const mName = monsterDisplayName(monster);
   if (Math.random() > hitChance) {
     addMsg(`You fire at the ${mName} — miss! (${Math.round(hitChance * 100)}% chance)`, 'msg-warning');
@@ -2068,15 +2201,23 @@ function endPlayerTurn() {
   state.player.turnCount++;
   processMonsters();
 
-  // Passive HP regeneration: 1 HP every 5 turns
-  if (state.turn % 5 === 0 && state.player.hp < state.player.maxHp) {
-    state.player.hp++;
+  // Passive HP regeneration (rate varies by profession)
+  const hpRate = state.player.hpRegenRate || 5;
+  if (state.turn % hpRate === 0 && state.player.hp < state.player.maxHp) {
+    let heal = 1;
+    // Doctor's field medicine: occasional bonus regen
+    if (state.player.passiveId === 'fieldMedicine' && rng(1, 3) === 1) heal = 2;
+    state.player.hp = Math.min(state.player.hp + heal, state.player.maxHp);
   }
 
-  // Stamina regeneration: 1 stamina every 2 turns (much faster than HP)
-  if (!state.player.running && state.turn % 2 === 0 && state.player.stamina < state.player.maxStamina) {
+  // Stamina regeneration (rate varies by profession)
+  const stmRate = state.player.staminaRegenRate || 2;
+  if (!state.player.running && state.turn % stmRate === 0 && state.player.stamina < state.player.maxStamina) {
     state.player.stamina = Math.min(state.player.stamina + 1, state.player.maxStamina);
   }
+
+  // Morphine wears off
+  if (state.player.morphineTurns > 0) state.player.morphineTurns--;
 
   // Tick reload progress
   tickReload();
@@ -2129,7 +2270,11 @@ function renderHelp() {
 
   <span class="subtitle">You are an investigator descending into the
   cyclopean depths beneath Arkham. Reach depth 9
-  to confront what lurks below — if your mind holds.</span>
+  to confront what lurks below — if your mind holds.
+
+  Choose a profession at the start: Soldier (combat),
+  Doctor (healing), or Detective (awareness). Each has
+  unique stats, starting gear, and a passive ability.</span>
 
   <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
   <span class="key">Look/Aim:</span>  [L] — move cursor to inspect or aim
@@ -2172,11 +2317,11 @@ function renderHelp() {
   increases with your level.
 
   <span class="subtitle">VISION</span>
-  You see in a 120° cone in your facing direction.
-  Moving updates your facing. [[] / []] to turn in
-  place. You have short peripheral vision to the
-  sides, but NOTHING behind you. Closed doors (+)
-  block line of sight — bump into them to open.
+  You see in a 120° cone in your facing direction
+  (150° for Detectives). Moving updates your facing.
+  [[] / []] to turn in place. You have short peripheral
+  vision to the sides, but NOTHING behind you. Closed
+  doors (+) block line of sight — bump into them to open.
 
   <span class="subtitle">CREATURES</span>
   Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers and are
@@ -2261,6 +2406,30 @@ function titleScreen() {
   <span class="key">[H]</span>     Hall of Investigators`);
 }
 
+function renderProfessionSelect() {
+  const profs = Object.values(PROFESSIONS);
+  let text = `<span class="title">═══ CHOOSE YOUR PROFESSION ═══</span>\n\n`;
+
+  text += `  <span class="key">[A]</span> <span style="color:#e74c3c;font-weight:bold">Soldier</span>     HP: 35  SAN: 80  ATK: 3  DEF: 1
+      ${PROFESSIONS.soldier.desc}
+      <span class="subtitle">Starts with: M1911 pistol, combat knife, laudanum, extra ammo</span>
+      <span style="color:#888">Passive: ${PROFESSIONS.soldier.passive}</span>\n\n`;
+
+  text += `  <span class="key">[B]</span> <span style="color:#2ecc71;font-weight:bold">Doctor</span>      HP: 25  SAN: 95  ATK: 1  DEF: 0
+      ${PROFESSIONS.doctor.desc}
+      <span class="subtitle">Starts with: .38 revolver, medical bags (x2), morphine syrette</span>
+      <span style="color:#888">Passive: ${PROFESSIONS.doctor.passive}</span>\n\n`;
+
+  text += `  <span class="key">[C]</span> <span style="color:#3498db;font-weight:bold">Detective</span>   HP: 30  SAN: 90  ATK: 2  DEF: 0
+      ${PROFESSIONS.detective.desc}
+      <span class="subtitle">Starts with: .38 revolver, hip flask (x2), extra ammo</span>
+      <span style="color:#888">Passive: ${PROFESSIONS.detective.passive}</span>\n\n`;
+
+  text += `  <span class="key">[ESC]</span> Back to title`;
+
+  showOverlay(text);
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  HIGH SCORES (localStorage)
 // ═══════════════════════════════════════════════════════════════
@@ -2287,18 +2456,19 @@ function calcScore() {
 
 function formatScoreBoard(scores, highlightIndex) {
   if (scores.length === 0) return '  (no scores yet)\n';
-  let text = '  <span class="subtitle"> #  NAME             SCORE  DEPTH  CAUSE</span>\n';
+  let text = '  <span class="subtitle"> #  NAME             CLASS      SCORE  DEPTH  CAUSE</span>\n';
   for (let i = 0; i < scores.length; i++) {
     const s = scores[i];
     const marker = i === highlightIndex ? '<span class="key">▸</span>' : ' ';
     const name = (s.name || 'Unknown').padEnd(16).slice(0, 16);
+    const prof = (s.profession || '???').padEnd(9).slice(0, 9);
     const score = String(s.score).padStart(5);
     const depth = String(s.depth).padStart(4);
     const cause = s.victory ? 'Survived' : (s.cause === 'sanity' ? 'Madness' : 'Death');
     const cls = i === highlightIndex ? 'key' : '';
     const open = cls ? `<span class="${cls}">` : '';
     const close = cls ? '</span>' : '';
-    text += `  ${marker} ${open}${String(i+1).padStart(2)}. ${name} ${score}  ${depth}   ${cause}${close}\n`;
+    text += `  ${marker} ${open}${String(i+1).padStart(2)}. ${name} ${prof} ${score}  ${depth}   ${cause}${close}\n`;
   }
   return text;
 }
@@ -2410,6 +2580,7 @@ function submitScore(name) {
     level: state.player.level,
     gold: state.player.gold,
     turns: state.turn,
+    profession: (PROFESSIONS[state.player.profession] || {}).name || '???',
     cause: isVictory ? 'victory' : (isMadness ? 'sanity' : 'death'),
     victory: isVictory,
     date: new Date().toISOString().slice(0, 10),
@@ -2594,11 +2765,43 @@ function leaveDreamlands() {
 // ═══════════════════════════════════════════════════════════════
 let gameStarted = false;
 let showingTitleScores = false;
+let showingProfSelect = false;
 let devMode = false;
 
 document.addEventListener('keydown', (e) => {
   // Title screen
   if (!gameStarted) {
+    // Profession selection screen
+    if (showingProfSelect) {
+      const profMap = { a: 'soldier', b: 'doctor', c: 'detective' };
+      const profId = profMap[e.key.toLowerCase()];
+      if (profId) {
+        gameStarted = true;
+        showingProfSelect = false;
+        hideOverlay();
+        initState(profId);
+        assignStartingLoadout(profId);
+        generateLevel();
+        const prof = PROFESSIONS[profId];
+        addMsg(`You are a ${prof.name}. ${prof.desc.replace(/"/g, '')}`, 'msg-lore');
+        addMsg('You descend into the darkness beneath Arkham...', 'msg-lore');
+        addMsg('The trapdoor slams shut above you.', 'msg-warning');
+        if (state.player.firearm) {
+          addMsg(`You grip your ${state.player.firearm.name} (${state.player.firearm.ammo}/${state.player.firearm.magSize}).`, 'msg-info');
+        }
+        if (state.player.weapon) {
+          addMsg(`Your ${state.player.weapon.name} is at your side.`, 'msg-info');
+        }
+        render();
+        return;
+      }
+      if (e.key === 'Escape') {
+        showingProfSelect = false;
+        titleScreen();
+        return;
+      }
+      return;
+    }
     if (showingTitleScores) {
       if (e.key === 'Escape') {
         showingTitleScores = false;
@@ -2607,15 +2810,8 @@ document.addEventListener('keydown', (e) => {
       return;
     }
     if (e.key === 'Enter') {
-      gameStarted = true;
-      hideOverlay();
-      initState();
-      assignStartingFirearm();
-      generateLevel();
-      addMsg('You descend into the darkness beneath Arkham...', 'msg-lore');
-      addMsg('The trapdoor slams shut above you.', 'msg-warning');
-      addMsg(`You grip your ${state.player.firearm.name} (${state.player.firearm.ammo}/${state.player.firearm.magSize}).`, 'msg-info');
-      render();
+      showingProfSelect = true;
+      renderProfessionSelect();
       return;
     }
     if (e.key === 'h' || e.key === 'H') {
