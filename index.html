@@ -350,7 +350,7 @@ const DREAM_ITEMS = [
     id: 'moonMilk',
     name: 'Saucer of Moon-Milk',
     desc: 'A luminous white liquid. It tastes of starlight.',
-    cost: 8,
+    cost: 40,
     effect(p) {
       const gain = rng(5, 10);
       const actual = Math.min(gain, p.maxSanity - p.sanity);
@@ -362,7 +362,7 @@ const DREAM_ITEMS = [
     id: 'catNap',
     name: 'Dreamcat\'s Embrace',
     desc: 'The cat curls against you. A deep peace settles in.',
-    cost: 20,
+    cost: 100,
     effect(p) {
       const gain = rng(15, 25);
       const actual = Math.min(gain, p.maxSanity - p.sanity);
@@ -374,7 +374,7 @@ const DREAM_ITEMS = [
     id: 'dreamHerb',
     name: 'Herbs of Ulthar',
     desc: 'Silvery leaves that heal wounds sustained in the waking world.',
-    cost: 8,
+    cost: 40,
     effect(p) {
       const gain = rng(10, 20);
       const actual = Math.min(gain, p.maxHp - p.hp);
@@ -386,7 +386,7 @@ const DREAM_ITEMS = [
     id: 'dreamAmmo',
     name: 'Waking-World Ammunition',
     desc: 'Cartridges that exist in both dreams and reality.',
-    cost: 12,
+    cost: 60,
     effect(p) {
       const f = p.firearm;
       if (!f) return 'You have no firearm to load.';
@@ -405,18 +405,18 @@ const DREAM_ITEMS = [
   {
     id: 'dreamShield',
     name: 'Veil of Pleasant Dreams',
-    desc: 'Your next SAN check automatically succeeds.',
-    cost: 15,
+    desc: 'Auto-pass ALL SAN checks for the next floor. Expensive, but invaluable.',
+    cost: 250,
     effect(p) {
       p.dreamShield = true;
-      return 'A gentle haze settles over your consciousness. You feel protected.';
+      return 'A deep, luminous calm suffuses your being. Nothing on the next floor can touch your mind.';
     },
   },
   {
     id: 'catsEye',
     name: 'Cat\'s Eye Jewel',
     desc: 'See further in the dark for the rest of this floor.',
-    cost: 18,
+    cost: 90,
     effect(p) {
       state.catsEyeActive = true;
       return 'The jewel pulses. The darkness pulls back from your gaze.';
@@ -426,7 +426,7 @@ const DREAM_ITEMS = [
     id: 'curiousIdol',
     name: 'Curious Idol',
     desc: '+2 ATK, but permanently lose 5 max SAN.',
-    cost: 30,
+    cost: 150,
     effect(p) {
       p.baseAtk += 2;
       p.maxSanity = Math.max(10, p.maxSanity - 5);
@@ -1181,16 +1181,15 @@ function monsterDisplayColor(monster) {
 // dice is { pass: [min,max], fail: [min,max] } or null for no SAN effect
 function rollSanity(dice, label) {
   if (!dice) return 0;
-  // Dream Shield: auto-pass the next SAN check
+  // Dream Shield: auto-pass all SAN checks this floor
   if (state.player.dreamShield) {
-    state.player.dreamShield = false;
     const [lo, hi] = dice.pass;
     const sanLoss = lo === 0 && hi === 0 ? 0 : rng(lo, hi);
     if (sanLoss > 0) {
       state.player.sanity = Math.max(0, state.player.sanity - sanLoss);
-      addMsg(`${label} A veil of pleasant dreams shields your mind. -${sanLoss} SAN`, 'msg-info');
+      addMsg(`${label} The Veil shields your mind. -${sanLoss} SAN`, 'msg-info');
     } else {
-      addMsg(`${label} A veil of pleasant dreams shields your mind entirely.`, 'msg-good');
+      addMsg(`${label} The Veil shields your mind entirely.`, 'msg-good');
     }
     return sanLoss;
   }
@@ -1994,7 +1993,7 @@ function tryPickup() {
     state.player.weapon = item;
     state.items = state.items.filter(it => it !== item);
     recalcStats();
-    addMsg(`You equip the ${item.name}. ATK is now ${state.player.atk}.`, 'msg-good');
+    addMsg(`You equip the ${item.name} (+${item.atk}). ATK: ${state.player.baseAtk} base + ${item.atk} weapon = ${state.player.atk}.`, 'msg-good');
   } else if (item.type === 'armor') {
     if (state.player.armor) {
       state.items.push({ ...state.player.armor, x: px, y: py });
@@ -2030,8 +2029,9 @@ function tryDescend() {
     victoryScreen();
     return;
   }
-  // Reset cat's eye for the previous floor
+  // Reset per-floor effects from previous floor
   state.catsEyeActive = false;
+  state.player.dreamShield = false;
   // Enter the Dreamlands shop
   enterDreamlands();
 }
