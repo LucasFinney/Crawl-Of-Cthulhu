@@ -1073,6 +1073,7 @@ function getTorchFovRadius() {
   // Torch off or no fuel: minimum vision (can still barely see adjacent tiles)
   if (!state.player.torchLit || state.player.torch <= 0) return TORCH_MIN_FOV;
   const t = state.player.torch;
+  const maxTorch = state.player.maxTorch;
   if (t >= maxTorch * 0.75) return FOV_FRONT_RADIUS;       // 10 — full brightness
   if (t >= maxTorch * 0.5) return FOV_FRONT_RADIUS - 1;   // 9  — starting to dim
   if (t >= maxTorch * 0.33)  return FOV_FRONT_RADIUS - 2;   // 8  — noticeably dim
