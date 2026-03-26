@@ -971,7 +971,7 @@ function spawnItems() {
   }
 
   // Spawn consumables (torch oil more likely when running low)
-  const torchLow = state.player.torch < 80;
+  const torchLow = state.player.torch < 150;
   const consumableKeys = ['healingHerb', 'laudanum', 'necronomicon'];
   if (torchLow || Math.random() < 0.4) consumableKeys.push('torchOil');
   const numConsumables = rng(2, 4);
