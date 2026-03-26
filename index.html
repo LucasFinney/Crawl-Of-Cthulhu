@@ -681,8 +681,8 @@ function initState(profId) {
       firearm: null,
       turnCount: 0,
       dreamShield: false,
-      torch: 200,       // torch fuel — depletes each turn, FOV shrinks as it fades
-      maxTorch: 200,
+      torch: 300,       // torch fuel — depletes each turn, FOV shrinks as it fades
+      maxTorch: 300,
       torchLit: true,   // can toggle off to conserve fuel
       profession: prof.id,
       hpRegenRate: prof.hpRegenRate,
@@ -971,7 +971,7 @@ function spawnItems() {
   }
 
   // Spawn consumables (torch oil more likely when running low)
-  const torchLow = state.player.torch < 80;
+  const torchLow = state.player.torch < 150;
   const consumableKeys = ['healingHerb', 'laudanum', 'necronomicon'];
   if (torchLow || Math.random() < 0.4) consumableKeys.push('torchOil');
   const numConsumables = rng(2, 4);
@@ -1065,18 +1065,19 @@ const CONE_HALF_ANGLE_WIDE = Math.PI * 75 / 180; // 75° each side = 150° for d
 const PERIPHERAL_HALF_ANGLE = Math.PI * 0.75; // 135° each side = 270° peripheral zone
 const PERIPHERAL_RADIUS = 2;             // short range for side vision
 const FOV_FRONT_RADIUS = FOV_RADIUS;     // full range forward
-const TORCH_MAX = 200;                   // max torch fuel
 const TORCH_MIN_FOV = 3;                // minimum FOV even with no torch
+const AUTO_IDENTIFY_RANGE = 6;          // monsters auto-identify within this range
+const UNIDENTIFIED_ACC_PENALTY = 0.20;  // -20% accuracy shooting at '?' targets
 
 function getTorchFovRadius() {
   // Torch off or no fuel: minimum vision (can still barely see adjacent tiles)
   if (!state.player.torchLit || state.player.torch <= 0) return TORCH_MIN_FOV;
   const t = state.player.torch;
-  if (t >= 150) return FOV_FRONT_RADIUS;       // 10 — full brightness
-  if (t >= 100) return FOV_FRONT_RADIUS - 1;   // 9  — starting to dim
-  if (t >= 60)  return FOV_FRONT_RADIUS - 2;   // 8  — noticeably dim
-  if (t >= 30)  return FOV_FRONT_RADIUS - 4;   // 6  — flickering
-  if (t >= 10)  return FOV_FRONT_RADIUS - 6;   // 4  — guttering
+  if (t >= maxTorch * 0.75) return FOV_FRONT_RADIUS;       // 10 — full brightness
+  if (t >= maxTorch * 0.5) return FOV_FRONT_RADIUS - 1;   // 9  — starting to dim
+  if (t >= maxTorch * 0.33)  return FOV_FRONT_RADIUS - 2;   // 8  — noticeably dim
+  if (t >= maxTorch * 0.17)  return FOV_FRONT_RADIUS - 4;   // 6  — flickering
+  if (t >= maxTorch * 0.05)  return FOV_FRONT_RADIUS - 6;   // 4  — guttering
   return TORCH_MIN_FOV;                         // 3  — almost out
 }
 
@@ -1154,7 +1155,11 @@ function describeTile(x, y) {
       if (monster.identified) {
         return `${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`;
       } else {
-        return `${monster.hint} [Enter] Examine`;
+        const d = dist(state.player.x, state.player.y, x, y);
+        if (d <= AUTO_IDENTIFY_RANGE) {
+          return `${monster.hint} (close enough to identify)`;
+        }
+        return `${monster.hint} (too far to make out — move closer)`;
       }
     }
 
@@ -1365,20 +1370,39 @@ function rollSanity(dice, label) {
   return sanLoss;
 }
 
-function identifyMonster(monster) {
+function identifyMonster(monster, source) {
   if (monster.identified) return;
   monster.identified = true;
+  // SAN check on identification if not already triggered by sight
   if (!monster.sanChecked) {
-    // First encounter via deliberate identification — roll SAN
     monster.sanChecked = true;
     if (monster.sanDice) {
-      rollSanity(monster.sanDice, `You recognize it — a ${monster.name}!`);
+      rollSanity(monster.sanDice, `You make out a ${monster.name}!`);
     } else {
-      addMsg(`You identify it as a ${monster.name}.`, 'msg-info');
+      addMsg(`You make out a ${monster.name}.`, 'msg-info');
     }
   } else {
-    // Already took the SAN hit on sight — just reveal the name
-    addMsg(`You recognize it as a ${monster.name}.`, 'msg-info');
+    // Already took sight SAN hit — just reveal the name
+    if (source === 'proximity') {
+      addMsg(`As it draws near, you recognize it — a ${monster.name}.`, 'msg-info');
+    } else {
+      addMsg(`You recognize it as a ${monster.name}.`, 'msg-info');
+    }
+  }
+}
+
+// Auto-identify visible monsters within close range
+function checkAutoIdentify() {
+  const p = state.player;
+  // Detective's keen eye: identify from slightly further
+  const idRange = p.passiveId === 'keenEye' ? AUTO_IDENTIFY_RANGE + 2 : AUTO_IDENTIFY_RANGE;
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || m.identified) continue;
+    if (!state.visible[m.y * WIDTH + m.x]) continue;
+    const d = dist(p.x, p.y, m.x, m.y);
+    if (d <= idRange) {
+      identifyMonster(m, 'proximity');
+    }
   }
 }
 
@@ -1700,7 +1724,9 @@ function fireAtTarget(tx, ty) {
   const overRange = Math.max(0, Math.floor(d) - f.range);
   const rangePenalty = overRange * 0.10; // -10% per tile beyond range
   const distPenalty = (Math.min(d, f.range) / f.range) * 0.10; // slight penalty within range
-  let hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty, 0.05, 0.95);
+  // Penalty for shooting at unidentified targets — hard to aim at what you can't comprehend
+  const idPenalty = monster.identified ? 0 : UNIDENTIFIED_ACC_PENALTY;
+  let hitChance = clamp(f.accuracy + aimBonus - distPenalty - rangePenalty - idPenalty, 0.05, 0.95);
   // Morphine accuracy penalty
   if (state.player.morphineTurns > 0) hitChance = clamp(hitChance - 0.10, 0.05, 0.95);
   const mName = monsterDisplayName(monster);
@@ -2372,6 +2398,9 @@ function endPlayerTurn() {
   state.player.turnCount++;
   processMonsters();
 
+  // Auto-identify nearby visible monsters
+  checkAutoIdentify();
+
   // Passive HP regeneration (rate varies by profession)
   const hpRate = state.player.hpRegenRate || 5;
   if (state.turn % hpRate === 0 && state.player.hp < state.player.maxHp) {
@@ -2467,7 +2496,7 @@ function renderHelp() {
   <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
   <span class="key">Look/Aim:</span>  [L] — move cursor to inspect or aim
   <span class="key">Cycle:</span>     [ / ] in look mode — snap to next/prev target
-  <span class="key">Examine:</span>   [Enter] in look mode — identify a creature
+  <span class="key">Inspect:</span>   [Enter] in look mode — view details
   <span class="key">Fire:</span>      [F] in look mode — shoot at cursor
   <span class="key">Reload:</span>    [R] — reload your firearm (takes turns)
   <span class="key">Turn:</span>      [[] / []] — rotate facing
@@ -2517,13 +2546,17 @@ function renderHelp() {
   Dreamlands shop. Entering a dream restores some light.
 
   <span class="subtitle">CREATURES</span>
-  Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers and are
-  called "things" in messages. You can fight them
-  without identifying them. Use [L]ook and move the
-  cursor over a creature to see a vague impression,
-  then press [Enter] to examine it and learn what
-  it truly is. Beware: identifying eldritch horrors
-  costs SANITY. Sometimes ignorance is safer.
+  Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers at a
+  distance. As you approach within ${AUTO_IDENTIFY_RANGE} tiles, you
+  automatically make out what they are. Eldritch
+  horrors cost SANITY to identify — the choice is
+  whether to approach at all. Melee contact also
+  reveals a creature. Use [L]ook to see vague hints
+  about distant unknowns before committing.
+
+  <span style="color:#c33">Shooting at unidentified targets incurs a -${UNIDENTIFIED_ACC_PENALTY * 100}%
+  accuracy penalty — you can't aim at what you
+  can't comprehend.</span>
 
   Creatures have different behaviors: some chase you
   directly, others lurk in ambush until you step
@@ -3240,14 +3273,14 @@ document.addEventListener('keydown', (e) => {
       return;
     }
     if (e.key === 'Enter') {
-      // Examine: deliberately identify the monster under the cursor
+      // Inspect: show info about what's under the cursor
       const monster = state.monsters.find(m => m.x === state.lookX && m.y === state.lookY && m.hp > 0);
-      if (monster && !monster.identified) {
-        identifyMonster(monster);
-      } else if (monster && monster.identified) {
+      if (monster && monster.identified) {
         addMsg(`${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`, 'msg-info');
+      } else if (monster) {
+        addMsg(`${monster.hint}`, 'msg-warning');
       } else {
-        addMsg('There is nothing here to examine.', 'msg-info');
+        addMsg(describeTile(state.lookX, state.lookY), 'msg-info');
       }
       render();
       return;
