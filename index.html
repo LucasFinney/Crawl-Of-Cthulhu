@@ -683,6 +683,7 @@ function initState(profId) {
       dreamShield: false,
       torch: 200,       // torch fuel — depletes each turn, FOV shrinks as it fades
       maxTorch: 200,
+      torchLit: true,   // can toggle off to conserve fuel
       profession: prof.id,
       hpRegenRate: prof.hpRegenRate,
       staminaRegenRate: prof.staminaRegenRate,
@@ -1068,14 +1069,15 @@ const TORCH_MAX = 200;                   // max torch fuel
 const TORCH_MIN_FOV = 3;                // minimum FOV even with no torch
 
 function getTorchFovRadius() {
+  // Torch off or no fuel: minimum vision (can still barely see adjacent tiles)
+  if (!state.player.torchLit || state.player.torch <= 0) return TORCH_MIN_FOV;
   const t = state.player.torch;
   if (t >= 150) return FOV_FRONT_RADIUS;       // 10 — full brightness
   if (t >= 100) return FOV_FRONT_RADIUS - 1;   // 9  — starting to dim
   if (t >= 60)  return FOV_FRONT_RADIUS - 2;   // 8  — noticeably dim
   if (t >= 30)  return FOV_FRONT_RADIUS - 4;   // 6  — flickering
   if (t >= 10)  return FOV_FRONT_RADIUS - 6;   // 4  — guttering
-  if (t > 0)    return TORCH_MIN_FOV;           // 3  — almost out
-  return TORCH_MIN_FOV;                         // 3  — darkness, bare minimum
+  return TORCH_MIN_FOV;                         // 3  — almost out
 }
 
 function computeFOV() {
@@ -1289,7 +1291,7 @@ function renderStats() {
     <span class="stat stat-hp">HP: ${p.hp}/${p.maxHp}</span>
     <span class="stat stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>
     <span class="stat stat-stam">STM: ${p.stamina}/${p.maxStamina}${p.running ? ' [RUN]' : ''}</span>
-    <span class="stat" style="color:${p.torch > 100 ? '#f39c12' : p.torch > 30 ? '#cc7000' : '#cc3333'}">Torch: ${p.torch}</span>
+    <span class="stat" style="color:${!p.torchLit ? '#666' : p.torch > 100 ? '#f39c12' : p.torch > 30 ? '#cc7000' : '#cc3333'}">Torch: ${p.torchLit ? p.torch : 'OFF'}</span>
     <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
     <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
     <span class="stat" style="color:#c0a030">${ammoDisp}</span>
@@ -2074,8 +2076,10 @@ function checkSanityEvents() {
   if (anyAwake) return;
 
   // Timer-based: trigger every 20-30 turns of peaceful exploration
+  // Darkness accelerates events: every 8-15 turns with torch off
   const turnsSinceLast = state.turn - state.lastSpookyTurn;
-  const threshold = rng(20, 30);
+  const inDark = !state.player.torchLit || state.player.torch <= 0;
+  const threshold = inDark ? rng(8, 15) : rng(20, 30);
   if (turnsSinceLast < threshold) return;
 
   state.lastSpookyTurn = state.turn;
@@ -2093,6 +2097,17 @@ function checkSanityEvents() {
     'A distant, rhythmic chanting pulses at the edge of hearing.',
     'A pipe organ drones from deep below — a single, sustained note.',
   ];
+  // Extra events when in darkness
+  if (inDark) {
+    mildEvents.push(
+      'Something brushes past your arm in the dark. You feel breath on your neck.',
+      'You hear breathing that is not your own. It stops when you hold yours.',
+      'Your fingers brush something warm and wet on the wall. It flinches.',
+      'Footsteps pace alongside you in the darkness, perfectly matching your stride.',
+      'Something clicks its teeth in the dark, very close to your ear.',
+      'You feel the floor tilt beneath you, though your feet say otherwise.',
+    );
+  }
   // Surreal events (deeper / lower sanity) — SAN roll: 1d4/1d8
   const surealEvents = [
     'The walls glisten with a mucus-like sheen that wasn\'t there before.',
@@ -2105,8 +2120,9 @@ function checkSanityEvents() {
     'You find scratches in the stone: "THEY SEE THROUGH THE WALLS".',
   ];
 
-  // Deeper levels and lower sanity increase chance of surreal events
-  const surealChance = Math.min(0.6, 0.1 + state.dlevel * 0.08 + (100 - san) * 0.003);
+  // Deeper levels, lower sanity, and darkness increase chance of surreal events
+  const darkBonus = inDark ? 0.2 : 0;
+  const surealChance = Math.min(0.75, 0.1 + state.dlevel * 0.08 + (100 - san) * 0.003 + darkBonus);
   const isSureal = Math.random() < surealChance;
   const event = isSureal ? pick(surealEvents) : pick(mildEvents);
   const dice = isSureal ? { pass: [1,4], fail: [1,8] } : { pass: [0,0], fail: [1,4] };
@@ -2374,15 +2390,18 @@ function endPlayerTurn() {
   // Morphine wears off
   if (state.player.morphineTurns > 0) state.player.morphineTurns--;
 
-  // Torch depletion (1 fuel per turn, running drains faster)
-  if (state.player.torch > 0) {
+  // Torch depletion (only when lit; 1 fuel per turn, running drains faster)
+  if (state.player.torchLit && state.player.torch > 0) {
     state.player.torch -= state.player.running ? 2 : 1;
     state.player.torch = Math.max(0, state.player.torch);
     // Warning messages at thresholds
     if (state.player.torch === 100) addMsg('Your light flickers and dims...', 'msg-warning');
     if (state.player.torch === 50) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
     if (state.player.torch === 20) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
-    if (state.player.torch === 0) addMsg('Your light goes out. You are in near-total darkness!', 'msg-danger');
+    if (state.player.torch === 0) {
+      addMsg('Your light goes out. You are in near-total darkness!', 'msg-danger');
+      state.player.torchLit = false;
+    }
   }
 
   // Tick reload progress
@@ -2412,6 +2431,9 @@ function renderInventory() {
   text += `    Firearm: ${p.firearm ? `${p.firearm.name} (${p.firearm.ammo}/${p.firearm.magSize})` : '(none)'}\n`;
   text += `    Melee:   ${p.weapon ? p.weapon.name : '(none)'}\n`;
   text += `    Armor:   ${p.armor ? p.armor.name : '(none)'}\n`;
+  const torchColor = p.torchLit ? '#f39c12' : '#666';
+  const torchStatus = p.torchLit ? `ON (${p.torch}/${p.maxTorch})` : `OFF (${p.torch}/${p.maxTorch})`;
+  text += `    <span style="color:${torchColor}">Torch:   ${torchStatus}</span>  <span class="key">[T]</span> Toggle\n`;
   text += '\n';
 
   // Carried items
@@ -2427,7 +2449,7 @@ function renderInventory() {
       text += `  <span class="key">[${i + 1}]</span> ${label} — ${item.desc}\n`;
     }
   }
-  text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[ESC/I]</span> Close`;
+  text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[T]</span> Toggle torch · <span class="key">[ESC/I]</span> Close`;
   showOverlay(text);
 }
 
@@ -3078,6 +3100,22 @@ document.addEventListener('keydown', (e) => {
       state.showInventory = false;
       hideOverlay();
       render();
+      return;
+    }
+    if (e.key === 't' || e.key === 'T') {
+      const p = state.player;
+      p.torchLit = !p.torchLit;
+      if (p.torchLit) {
+        if (p.torch > 0) {
+          addMsg('You relight your torch. The darkness retreats.', 'msg-info');
+        } else {
+          addMsg('You try to relight your torch, but it has no fuel.', 'msg-warning');
+          p.torchLit = false;
+        }
+      } else {
+        addMsg('You extinguish your torch. Darkness engulfs you.', 'msg-warning');
+      }
+      renderInventory();
       return;
     }
     const num = parseInt(e.key);
