@@ -151,69 +151,74 @@ const TILE_DISPLAY = {
 };
 
 // ── Monster definitions ─────────────────────────────────────
+// Monster behavior types:
+// 'normal'  — standard chase-and-attack AI
+// 'stalker' — follows player at edge of FOV, only attacks if cornered or player is very weak
+// 'ambush'  — waits motionless until player is adjacent, then strikes hard
+// 'freeze'  — only moves when player is NOT looking (not in player's FOV)
 const MONSTER_DEFS = {
   rat: {
     name: 'sewer rat', ch: 'r', fg: '#8B6914',
     hp: 4, atk: 1, def: 0, xp: 2, speed: 1,
     sanDice: null, desc: 'A mangy sewer rat.',
     hint: 'Something small skitters in the dark.',
-    minLevel: 1, aggression: 3 // gives up quickly
+    minLevel: 1, aggression: 3, behavior: 'normal'
   },
   cultist: {
     name: 'cultist', ch: 'c', fg: '#cc3333',
     hp: 8, atk: 3, def: 1, xp: 5, speed: 1,
     sanDice: { pass: [0,1], fail: [1,4] }, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
     hint: 'A hunched, human-shaped figure.',
-    minLevel: 1, aggression: 8 // zealous pursuers
+    minLevel: 1, aggression: 8, behavior: 'normal'
   },
   ghoul: {
     name: 'ghoul', ch: 'g', fg: '#6B8E23',
     hp: 14, atk: 5, def: 2, xp: 10, speed: 1,
     sanDice: { pass: [0,1], fail: [1,6] }, desc: 'A hunched, dog-faced corpse-eater.',
     hint: 'A crouching shape that reeks of the grave.',
-    minLevel: 2, aggression: 6 // persistent scavengers
+    minLevel: 2, aggression: 6, behavior: 'ambush'
   },
   deepOne: {
     name: 'deep one', ch: 'D', fg: '#1abc9c',
     hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
     sanDice: { pass: [0,2], fail: [1,6] }, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
     hint: 'Something wet and glistening. It smells of brine.',
-    minLevel: 3, aggression: 10 // territorial and relentless
+    minLevel: 3, aggression: 10, behavior: 'normal'
   },
   miGo: {
     name: 'mi-go', ch: 'M', fg: '#e74c3c',
     hp: 18, atk: 6, def: 2, xp: 20, speed: 2,
     sanDice: { pass: [1,3], fail: [1,8] }, desc: 'A fungoid crustacean from Yuggoth.',
     hint: 'A buzzing, insectoid shape that defies geometry.',
-    minLevel: 4, aggression: 12 // intelligent hunters
+    minLevel: 4, aggression: 12, behavior: 'normal'
   },
   nightgaunt: {
     name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
     hp: 25, atk: 8, def: 4, xp: 30, speed: 1,
     sanDice: { pass: [1,4], fail: [1,8] }, desc: 'A faceless, rubbery, horned flyer.',
     hint: 'A dark, winged silhouette with no face.',
-    minLevel: 5, aggression: 5 // ambush predators, lose interest fast
+    minLevel: 5, aggression: 5, behavior: 'stalker'
   },
   dimensionalShambler: {
     name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
     hp: 35, atk: 10, def: 5, xp: 45, speed: 1,
     sanDice: { pass: [1,4], fail: [1,10] }, desc: 'It lurches between planes of existence.',
     hint: 'A shape that flickers, as though not fully here.',
-    minLevel: 6, aggression: 7
+    minLevel: 6, aggression: 7, behavior: 'freeze'
   },
   starSpawn: {
     name: 'star spawn', ch: 'X', fg: '#6a0dad',
     hp: 50, atk: 14, def: 7, xp: 80, speed: 1,
     sanDice: { pass: [1,6], fail: [1,12] }, desc: 'A towering mass of tentacles and malice.',
     hint: 'Something enormous and wrong. Your eyes refuse to focus.',
-    minLevel: 7, aggression: 15 // nearly relentless
+    minLevel: 7, aggression: 15, behavior: 'normal'
   },
   shoggoth: {
     name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
     hp: 80, atk: 18, def: 8, xp: 150, speed: 1,
     sanDice: { pass: [1,6], fail: [1,20] }, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
     hint: 'A vast, formless mass that fills the passage. Do not look closer.',
-    minLevel: 8, aggression: 20 // never forgets
+    minLevel: 8, aggression: 20, behavior: 'normal'
   }
 };
 
@@ -279,6 +284,15 @@ const ITEM_DEFS = {
         player.xp += gain;
         return `Eldritch knowledge floods your consciousness. +${gain} XP!`;
       }
+    }
+  },
+  torchOil: {
+    name: 'torch oil', ch: '!', fg: '#f39c12', type: 'consumable',
+    desc: 'A flask of lamp oil. Restores light.',
+    use(player) {
+      const restore = rng(60, 100);
+      player.torch = Math.min(player.maxTorch, player.torch + restore);
+      return `You refuel your light. +${restore} torch fuel.`;
     }
   },
   gold: {
@@ -499,6 +513,18 @@ const DREAM_ITEMS = [
     },
   },
   {
+    id: 'dreamOil',
+    name: 'Everburning Oil',
+    desc: 'A phial of liquid starlight. Fully restores your torch.',
+    cost: 50,
+    effect(p) {
+      const was = p.torch;
+      p.torch = p.maxTorch;
+      const gain = p.maxTorch - was;
+      return gain > 0 ? `The starlight ignites. Your torch blazes anew. +${gain} fuel.` : 'Your torch already burns brightly.';
+    },
+  },
+  {
     id: 'dreamShield',
     name: 'Veil of Pleasant Dreams',
     desc: 'Auto-pass ALL SAN checks for the next floor. Expensive, but invaluable.',
@@ -655,6 +681,8 @@ function initState(profId) {
       firearm: null,
       turnCount: 0,
       dreamShield: false,
+      torch: 200,       // torch fuel — depletes each turn, FOV shrinks as it fades
+      maxTorch: 200,
       profession: prof.id,
       hpRegenRate: prof.hpRegenRate,
       staminaRegenRate: prof.staminaRegenRate,
@@ -941,8 +969,10 @@ function spawnItems() {
     }
   }
 
-  // Spawn consumables
+  // Spawn consumables (torch oil more likely when running low)
+  const torchLow = state.player.torch < 80;
   const consumableKeys = ['healingHerb', 'laudanum', 'necronomicon'];
+  if (torchLow || Math.random() < 0.4) consumableKeys.push('torchOil');
   const numConsumables = rng(2, 4);
   for (let i = 0; i < numConsumables; i++) {
     const room = pick(state.rooms.slice(1));
@@ -1034,6 +1064,19 @@ const CONE_HALF_ANGLE_WIDE = Math.PI * 75 / 180; // 75° each side = 150° for d
 const PERIPHERAL_HALF_ANGLE = Math.PI * 0.75; // 135° each side = 270° peripheral zone
 const PERIPHERAL_RADIUS = 2;             // short range for side vision
 const FOV_FRONT_RADIUS = FOV_RADIUS;     // full range forward
+const TORCH_MAX = 200;                   // max torch fuel
+const TORCH_MIN_FOV = 3;                // minimum FOV even with no torch
+
+function getTorchFovRadius() {
+  const t = state.player.torch;
+  if (t >= 150) return FOV_FRONT_RADIUS;       // 10 — full brightness
+  if (t >= 100) return FOV_FRONT_RADIUS - 1;   // 9  — starting to dim
+  if (t >= 60)  return FOV_FRONT_RADIUS - 2;   // 8  — noticeably dim
+  if (t >= 30)  return FOV_FRONT_RADIUS - 4;   // 6  — flickering
+  if (t >= 10)  return FOV_FRONT_RADIUS - 6;   // 4  — guttering
+  if (t > 0)    return TORCH_MIN_FOV;           // 3  — almost out
+  return TORCH_MIN_FOV;                         // 3  — darkness, bare minimum
+}
 
 function computeFOV() {
   state.visible.fill(0);
@@ -1042,6 +1085,7 @@ function computeFOV() {
   state.explored[py * WIDTH + px] = 1;
 
   const facingAngle = DIR_ANGLES[state.player.facing];
+  const torchRadius = getTorchFovRadius();
 
   // Cast rays in all directions
   const numRays = 720;
@@ -1051,9 +1095,9 @@ function computeFOV() {
     const coneHalf = (state.player.passiveId === 'keenEye') ? CONE_HALF_ANGLE_WIDE : CONE_HALF_ANGLE_DEFAULT;
     const inCone = diff <= coneHalf;
     const inPeripheral = diff <= PERIPHERAL_HALF_ANGLE;
-    // Forward cone: full range. Sides: short range. Behind: nothing.
+    // Forward cone: torch-limited range. Sides: short range. Behind: nothing.
     const bonus = state.catsEyeActive ? 3 : 0;
-    const maxRange = inCone ? (FOV_FRONT_RADIUS + bonus) : (inPeripheral ? (PERIPHERAL_RADIUS + Math.floor(bonus / 2)) : 0);
+    const maxRange = inCone ? (torchRadius + bonus) : (inPeripheral ? (Math.min(PERIPHERAL_RADIUS, torchRadius) + Math.floor(bonus / 2)) : 0);
 
     const dx = Math.cos(rayAngle);
     const dy = Math.sin(rayAngle);
@@ -1245,6 +1289,7 @@ function renderStats() {
     <span class="stat stat-hp">HP: ${p.hp}/${p.maxHp}</span>
     <span class="stat stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>
     <span class="stat stat-stam">STM: ${p.stamina}/${p.maxStamina}${p.running ? ' [RUN]' : ''}</span>
+    <span class="stat" style="color:${p.torch > 100 ? '#f39c12' : p.torch > 30 ? '#cc7000' : '#cc3333'}">Torch: ${p.torch}</span>
     <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
     <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
     <span class="stat" style="color:#c0a030">${ammoDisp}</span>
@@ -1419,7 +1464,18 @@ function monsterKillSanRecovery(monster) {
 
 function monsterAttackPlayer(monster) {
   const mName = monsterDisplayName(monster);
-  meleeAttack(monster, state.player, `The ${mName}`, 'you');
+
+  // Ambush bonus: first strike deals double damage
+  if (monster.behavior === 'ambush' && monster.ambushTriggered && !monster.ambushStruck) {
+    monster.ambushStruck = true;
+    const savedAtk = monster.atk;
+    monster.atk = monster.atk * 2;
+    addMsg(`The ${mName} lunges from the shadows!`, 'msg-danger');
+    meleeAttack(monster, state.player, `The ${mName}`, 'you');
+    monster.atk = savedAtk;
+  } else {
+    meleeAttack(monster, state.player, `The ${mName}`, 'you');
+  }
 
   // SAN check on first sight (if not already triggered)
   if (!monster.sanChecked) monsterSightSanCheck(monster);
@@ -1802,15 +1858,36 @@ function isPassable(x, y) {
       || tile === TILE.STAIRS_DOWN || tile === TILE.ALTAR || tile === TILE.WATER;
 }
 
+function monsterMoveToward(monster, targetX, targetY) {
+  const dTarget = dist(monster.x, monster.y, targetX, targetY);
+  let bestDx = 0, bestDy = 0, bestDist = dTarget;
+  for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+    const nx = monster.x + dx, ny = monster.y + dy;
+    if (!isPassable(nx, ny)) continue;
+    if (state.monsters.some(m => m !== monster && m.hp > 0 && m.x === nx && m.y === ny)) continue;
+    if (nx === state.player.x && ny === state.player.y) continue; // don't step on player
+    const nd = dist(nx, ny, targetX, targetY);
+    if (nd < bestDist) {
+      bestDist = nd;
+      bestDx = dx;
+      bestDy = dy;
+    }
+  }
+  monster.x += bestDx;
+  monster.y += bestDy;
+}
+
 function monsterTurn(monster) {
   if (monster.hp <= 0) return;
 
   const px = state.player.x, py = state.player.y;
   const d = dist(monster.x, monster.y, px, py);
   const canSee = hasLineOfSight(monster.x, monster.y, px, py) && d <= FOV_RADIUS;
+  const playerSeesMonster = state.visible[monster.y * WIDTH + monster.x];
+  const behavior = monster.behavior || 'normal';
 
   // Wake up if player is visible and close
-  if (!monster.awake && state.visible[monster.y * WIDTH + monster.x] && d < FOV_RADIUS) {
+  if (!monster.awake && playerSeesMonster && d < FOV_RADIUS) {
     monster.awake = true;
     monster.lastSeenX = px;
     monster.lastSeenY = py;
@@ -1824,12 +1901,10 @@ function monsterTurn(monster) {
   if (canSee) {
     monster.lastSeenX = px;
     monster.lastSeenY = py;
-    monster.pursuitTimer = monster.aggression; // Reset timer when player is visible
+    monster.pursuitTimer = monster.aggression;
   } else {
-    // Can't see the player — count down pursuit timer
     monster.pursuitTimer--;
     if (monster.pursuitTimer <= 0) {
-      // Lost interest — go back to sleep
       monster.awake = false;
       monster.lastSeenX = -1;
       monster.lastSeenY = -1;
@@ -1838,7 +1913,101 @@ function monsterTurn(monster) {
     }
   }
 
-  // Determine target: player if visible, or last known position if pursuing blind
+  // ── BEHAVIOR: AMBUSH ──
+  // Sits motionless until player is adjacent, then attacks with bonus damage.
+  // If player moves away after waking, slowly pursues.
+  if (behavior === 'ambush') {
+    const adjacent = Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1;
+    if (adjacent) {
+      // Ambush strike: first hit deals bonus damage
+      if (!monster.ambushTriggered) {
+        monster.ambushTriggered = true;
+        // Bonus handled in monsterAttackPlayer via ambushTriggered flag
+      }
+      monsterAttackPlayer(monster);
+      return;
+    }
+    // If ambush hasn't triggered yet, stay still and wait
+    if (!monster.ambushTriggered) return;
+    // After ambush is triggered, pursue normally (but slowly — skip 50% of turns)
+    if (rng(1, 2) === 1) return;
+    // Fall through to normal movement
+  }
+
+  // ── BEHAVIOR: STALKER ──
+  // Follows player at a distance (5-7 tiles). Only attacks if cornered,
+  // player HP is low, or player approaches within 2 tiles.
+  if (behavior === 'stalker') {
+    const adjacent = Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1;
+    if (adjacent) {
+      monsterAttackPlayer(monster);
+      return;
+    }
+    const preferredDist = rng(5, 7);
+    const playerWeak = state.player.hp <= state.player.maxHp * 0.25;
+
+    // Attack if player is very weak and close
+    if (playerWeak && d <= 3) {
+      // Close in for the kill
+      monsterMoveToward(monster, px, py);
+      return;
+    }
+
+    // Otherwise maintain preferred distance
+    if (d < preferredDist - 1 && canSee) {
+      // Too close — back away from player
+      let bestDx = 0, bestDy = 0, bestDist = d;
+      for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
+        const nx = monster.x + dx, ny = monster.y + dy;
+        if (!isPassable(nx, ny)) continue;
+        if (state.monsters.some(m => m !== monster && m.hp > 0 && m.x === nx && m.y === ny)) continue;
+        if (nx === px && ny === py) continue;
+        const nd = dist(nx, ny, px, py);
+        if (nd > bestDist && nd <= preferredDist + 1) {
+          bestDist = nd;
+          bestDx = dx;
+          bestDy = dy;
+        }
+      }
+      monster.x += bestDx;
+      monster.y += bestDy;
+    } else if (d > preferredDist + 1 && canSee) {
+      // Too far — approach to preferred distance
+      monsterMoveToward(monster, px, py);
+    }
+    // At preferred distance: stay put and watch
+    // Passive SAN drain just from being watched
+    if (canSee && playerSeesMonster && rng(1, 4) === 1 && monster.identified) {
+      addMsg(`The ${monster.name} watches you from the shadows...`, 'msg-sanity');
+    }
+    return;
+  }
+
+  // ── BEHAVIOR: FREEZE ──
+  // Only moves when the player is NOT looking at it (not in player's visible tiles).
+  // When visible, it stands perfectly still. When not visible, it rushes toward the player.
+  if (behavior === 'freeze') {
+    const adjacent = Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1;
+    if (adjacent) {
+      monsterAttackPlayer(monster);
+      return;
+    }
+    // If player can see this monster, it doesn't move
+    if (playerSeesMonster) {
+      // Occasional creepy message
+      if (rng(1, 6) === 1 && monster.identified) {
+        addMsg(`The ${monster.name} stands motionless, watching you...`, 'msg-sanity');
+      }
+      return;
+    }
+    // Not visible — rush toward player (double speed!)
+    monsterMoveToward(monster, px, py);
+    monsterMoveToward(monster, px, py);
+    return;
+  }
+
+  // ── BEHAVIOR: NORMAL ──
+  // Standard chase-and-attack behavior.
   let targetX, targetY;
   if (canSee) {
     targetX = px;
@@ -1846,7 +2015,6 @@ function monsterTurn(monster) {
   } else {
     targetX = monster.lastSeenX;
     targetY = monster.lastSeenY;
-    // If we've reached the last known position and still can't see the player, give up
     if (monster.x === targetX && monster.y === targetY) {
       monster.awake = false;
       monster.lastSeenX = -1;
@@ -1862,22 +2030,7 @@ function monsterTurn(monster) {
     return;
   }
 
-  // Move toward target (simple pathfinding)
-  const dTarget = dist(monster.x, monster.y, targetX, targetY);
-  let bestDx = 0, bestDy = 0, bestDist = dTarget;
-  for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]]) {
-    const nx = monster.x + dx, ny = monster.y + dy;
-    if (!isPassable(nx, ny)) continue;
-    if (state.monsters.some(m => m !== monster && m.hp > 0 && m.x === nx && m.y === ny)) continue;
-    const nd = dist(nx, ny, targetX, targetY);
-    if (nd < bestDist) {
-      bestDist = nd;
-      bestDx = dx;
-      bestDy = dy;
-    }
-  }
-  monster.x += bestDx;
-  monster.y += bestDy;
+  monsterMoveToward(monster, targetX, targetY);
 }
 
 function processMonsters() {
@@ -2165,6 +2318,8 @@ function tryDescend() {
   // Reset per-floor effects from previous floor
   state.catsEyeActive = false;
   state.player.dreamShield = false;
+  // Dreaming restores some torch fuel (but not full)
+  state.player.torch = Math.min(state.player.maxTorch, state.player.torch + 50);
   // Enter the Dreamlands shop
   enterDreamlands();
 }
@@ -2218,6 +2373,17 @@ function endPlayerTurn() {
 
   // Morphine wears off
   if (state.player.morphineTurns > 0) state.player.morphineTurns--;
+
+  // Torch depletion (1 fuel per turn, running drains faster)
+  if (state.player.torch > 0) {
+    state.player.torch -= state.player.running ? 2 : 1;
+    state.player.torch = Math.max(0, state.player.torch);
+    // Warning messages at thresholds
+    if (state.player.torch === 100) addMsg('Your light flickers and dims...', 'msg-warning');
+    if (state.player.torch === 50) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
+    if (state.player.torch === 20) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
+    if (state.player.torch === 0) addMsg('Your light goes out. You are in near-total darkness!', 'msg-danger');
+  }
 
   // Tick reload progress
   tickReload();
@@ -2316,12 +2482,17 @@ function renderHelp() {
   regenerates quickly when not running. Max stamina
   increases with your level.
 
-  <span class="subtitle">VISION</span>
+  <span class="subtitle">VISION & LIGHT</span>
   You see in a 120° cone in your facing direction
   (150° for Detectives). Moving updates your facing.
   [[] / []] to turn in place. You have short peripheral
   vision to the sides, but NOTHING behind you. Closed
   doors (+) block line of sight — bump into them to open.
+
+  Your torch burns down each turn. As it dims, your
+  view range shrinks. Running burns fuel faster. Find
+  torch oil to refuel, or buy Everburning Oil from the
+  Dreamlands shop. Entering a dream restores some light.
 
   <span class="subtitle">CREATURES</span>
   Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers and are
@@ -2331,6 +2502,12 @@ function renderHelp() {
   then press [Enter] to examine it and learn what
   it truly is. Beware: identifying eldritch horrors
   costs SANITY. Sometimes ignorance is safer.
+
+  Creatures have different behaviors: some chase you
+  directly, others lurk in ambush until you step
+  close. Some stalk from a distance, watching and
+  waiting. The most unsettling only move when you
+  aren't looking at them...
 
   <span class="subtitle">SANITY</span>
   Encountering eldritch horrors drains your sanity.
