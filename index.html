@@ -2142,11 +2142,11 @@ function checkSanityEvents() {
   const anyAwake = state.monsters.some(m => m.hp > 0 && m.awake);
   if (anyAwake) return;
 
-  // Timer-based: trigger every 20-30 turns of peaceful exploration
-  // Darkness accelerates events: every 8-15 turns with torch off
+  // Timer-based: trigger every 40-100 turns of peaceful exploration
+  // Darkness accelerates events: every 20-40 turns with torch off
   const turnsSinceLast = state.turn - state.lastSpookyTurn;
   const inDark = !state.player.torchLit || state.player.torch <= 0;
-  const threshold = inDark ? rng(8, 15) : rng(20, 30);
+  const threshold = inDark ? rng(20, 40) : rng(40, 100);
   if (turnsSinceLast < threshold) return;
 
   state.lastSpookyTurn = state.turn;
@@ -2659,8 +2659,8 @@ function titleScreen() {
   ██╔════╝██╔══██╗██╔══██╗██║    ██║██║
   ██║     ██████╔╝███████║██║ █╗ ██║██║
   ██║     ██╔══██╗██╔══██║██║███╗██║██║
-  ╚██████╗██║  ██║██║  ██║╚███╔███╔╝███████╗
-   ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝
+   ╚██████╗██║  ██║██║  ██║╚███╔███╔╝███████╗
+    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝
         OF CTHULHU</span>
 
   <span class="subtitle">A Roguelike Descent into Madness</span>
