@@ -5,6 +5,10 @@
 - [ ] Polish combat mechanics to differentiate monsters (unique behaviors, attack patterns, special abilities per monster type)
 - [ ] Refine survival horror gameplay elements (tension pacing, resource scarcity tuning, atmosphere)
 
+## RPG Systems
+
+- [ ] **Lore stat/skill**: A knowledge stat (possibly profession-linked) that gates creature identification. Currently, killing one of a type adds it to the bestiary. With a Lore system, mundane creatures (rats, cultists) would be auto-recognized, but eldritch creatures (nightgaunts, shoggoths) would require sufficient Lore to *name* even after a kill. The Occultist would have high starting Lore; the Detective would need to build it up through play (finding journals, Necronomicon pages, etc.). Ties into readable lore items and profession differentiation. Makes more sense once the bestiary is larger.
+
 ## Monsters
 
 - [ ] Give cultists group behavior (chanting buffs, summoning rituals)
@@ -24,7 +28,7 @@
 
 - [ ] More melee weapon variety
 - [ ] Throwable items (dynamite, molotov cocktails)
-- [ ] Lantern / torch mechanic affecting FOV radius
+- [x] Lantern / torch mechanic affecting FOV radius
 - [ ] Readable journals and letters for lore
 
 ## Sanity
@@ -43,7 +47,7 @@
 
 ## Meta
 
-- [ ] Multiple investigator classes with different starting loadouts
+- [x] Multiple investigator classes with different starting loadouts (Soldier, Doctor, Detective — more to come)
 - [ ] Unlockable content based on achievements
 - [ ] Daily challenge seed
 - [ ] Run history / statistics tracking
