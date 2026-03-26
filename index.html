@@ -117,7 +117,7 @@ body {
   <div id="stats-bar"></div>
   <div id="display"></div>
   <div id="message-log"></div>
-  <div id="help-bar">[←↑↓→/WASD] Move · [Tab] Run · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [I] Inventory · [[ / ]] Turn · [>] Descend · [?] Help</div>
+  <div id="help-bar">[←↑↓→/WASD] Move · [Tab] Run · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [T] Torch · [I] Inventory · [[ / ]] Turn · [>] Descend · [?] Help</div>
 </div>
 
 <script>
@@ -3400,6 +3400,22 @@ document.addEventListener('keydown', (e) => {
       }
       render();
       break;
+    case 't': case 'T': { // Toggle torch
+      const p = state.player;
+      p.torchLit = !p.torchLit;
+      if (p.torchLit) {
+        if (p.torch > 0) {
+          addMsg('You relight your torch. The darkness retreats.', 'msg-info');
+        } else {
+          addMsg('You try to relight your torch, but it has no fuel.', 'msg-warning');
+          p.torchLit = false;
+        }
+      } else {
+        addMsg('You extinguish your torch. Darkness engulfs you.', 'msg-warning');
+      }
+      render();
+      break;
+    }
     case ']': // Rotate clockwise
       state.player.facing = rotateFacing(state.player.facing, 1);
       render();
