@@ -1065,9 +1065,8 @@ const CONE_HALF_ANGLE_WIDE = Math.PI * 75 / 180; // 75° each side = 150° for d
 const PERIPHERAL_HALF_ANGLE = Math.PI * 0.75; // 135° each side = 270° peripheral zone
 const PERIPHERAL_RADIUS = 2;             // short range for side vision
 const FOV_FRONT_RADIUS = FOV_RADIUS;     // full range forward
-const TORCH_MAX = 200;                   // max torch fuel
 const TORCH_MIN_FOV = 3;                // minimum FOV even with no torch
-const AUTO_IDENTIFY_RANGE = 4;          // monsters auto-identify within this range
+const AUTO_IDENTIFY_RANGE = 6;          // monsters auto-identify within this range
 const UNIDENTIFIED_ACC_PENALTY = 0.20;  // -20% accuracy shooting at '?' targets
 
 function getTorchFovRadius() {
