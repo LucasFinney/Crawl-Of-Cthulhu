@@ -158,63 +158,63 @@ const TILE_DISPLAY = {
 // 'freeze'  — only moves when player is NOT looking (not in player's FOV)
 const MONSTER_DEFS = {
   rat: {
-    name: 'sewer rat', ch: 'r', fg: '#8B6914',
+    type: 'rat', name: 'sewer rat', ch: 'r', fg: '#8B6914',
     hp: 4, atk: 1, def: 0, xp: 2, speed: 1,
     sanDice: null, desc: 'A mangy sewer rat.',
     hint: 'Something small skitters in the dark.',
     minLevel: 1, aggression: 3, behavior: 'normal'
   },
   cultist: {
-    name: 'cultist', ch: 'c', fg: '#cc3333',
+    type: 'cultist', name: 'cultist', ch: 'c', fg: '#cc3333',
     hp: 8, atk: 3, def: 1, xp: 5, speed: 1,
     sanDice: { pass: [0,1], fail: [1,4] }, desc: 'A wild-eyed cultist chanting in an unknown tongue.',
     hint: 'A hunched, human-shaped figure.',
     minLevel: 1, aggression: 8, behavior: 'normal'
   },
   ghoul: {
-    name: 'ghoul', ch: 'g', fg: '#6B8E23',
+    type: 'ghoul', name: 'ghoul', ch: 'g', fg: '#6B8E23',
     hp: 14, atk: 5, def: 2, xp: 10, speed: 1,
     sanDice: { pass: [0,1], fail: [1,6] }, desc: 'A hunched, dog-faced corpse-eater.',
     hint: 'A crouching shape that reeks of the grave.',
     minLevel: 2, aggression: 6, behavior: 'ambush'
   },
   deepOne: {
-    name: 'deep one', ch: 'D', fg: '#1abc9c',
+    type: 'deepOne', name: 'deep one', ch: 'D', fg: '#1abc9c',
     hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
     sanDice: { pass: [0,2], fail: [1,6] }, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
     hint: 'Something wet and glistening. It smells of brine.',
     minLevel: 3, aggression: 10, behavior: 'normal'
   },
   miGo: {
-    name: 'mi-go', ch: 'M', fg: '#e74c3c',
+    type: 'miGo', name: 'mi-go', ch: 'M', fg: '#e74c3c',
     hp: 18, atk: 6, def: 2, xp: 20, speed: 2,
     sanDice: { pass: [1,3], fail: [1,8] }, desc: 'A fungoid crustacean from Yuggoth.',
     hint: 'A buzzing, insectoid shape that defies geometry.',
     minLevel: 4, aggression: 12, behavior: 'normal'
   },
   nightgaunt: {
-    name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
+    type: 'nightgaunt', name: 'nightgaunt', ch: 'N', fg: '#2c3e50',
     hp: 25, atk: 8, def: 4, xp: 30, speed: 1,
     sanDice: { pass: [1,4], fail: [1,8] }, desc: 'A faceless, rubbery, horned flyer.',
     hint: 'A dark, winged silhouette with no face.',
     minLevel: 5, aggression: 5, behavior: 'stalker'
   },
   dimensionalShambler: {
-    name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
+    type: 'dimensionalShambler', name: 'dimensional shambler', ch: 'S', fg: '#8e44ad',
     hp: 35, atk: 10, def: 5, xp: 45, speed: 1,
     sanDice: { pass: [1,4], fail: [1,10] }, desc: 'It lurches between planes of existence.',
     hint: 'A shape that flickers, as though not fully here.',
     minLevel: 6, aggression: 7, behavior: 'freeze'
   },
   starSpawn: {
-    name: 'star spawn', ch: 'X', fg: '#6a0dad',
+    type: 'starSpawn', name: 'star spawn', ch: 'X', fg: '#6a0dad',
     hp: 50, atk: 14, def: 7, xp: 80, speed: 1,
     sanDice: { pass: [1,6], fail: [1,12] }, desc: 'A towering mass of tentacles and malice.',
     hint: 'Something enormous and wrong. Your eyes refuse to focus.',
     minLevel: 7, aggression: 15, behavior: 'normal'
   },
   shoggoth: {
-    name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
+    type: 'shoggoth', name: 'shoggoth', ch: 'O', fg: '#1a1a2e',
     hp: 80, atk: 18, def: 8, xp: 150, speed: 1,
     sanDice: { pass: [1,6], fail: [1,20] }, desc: '"Tekeli-li!" — a protoplasmic nightmare.',
     hint: 'A vast, formless mass that fills the passage. Do not look closer.',
@@ -691,6 +691,7 @@ function initState(profId) {
       morphineTurns: 0,
     },
     dlevel: 1,
+    bestiary: new Set(),  // monster types the player has defeated and can now recognize
     catsEyeActive: false,
     messages: [],
     gameOver: false,
@@ -1153,14 +1154,17 @@ function describeTile(x, y) {
     // Monster
     const monster = state.monsters.find(m => m.x === x && m.y === y && m.hp > 0);
     if (monster) {
-      if (monster.identified) {
-        return `${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`;
+      if (!monster.identified) {
+        // Not yet visually identified — show vague hint
+        return `${monster.hint}`;
+      }
+      const known = monsterKnown(monster);
+      if (known) {
+        // In bestiary — show full info including stats
+        return `${monster.name} (HP: ${monster.hp}/${monster.maxHp} ATK: ${monster.atk} DEF: ${monster.def}) — ${monster.desc}`;
       } else {
-        const d = dist(state.player.x, state.player.y, x, y);
-        if (d <= AUTO_IDENTIFY_RANGE) {
-          return `${monster.hint} (close enough to identify)`;
-        }
-        return `${monster.hint} (too far to make out — move closer)`;
+        // Visually spotted but not in bestiary — show hint and HP only
+        return `Unknown creature (HP: ${monster.hp}/${monster.maxHp}) — ${monster.hint}`;
       }
     }
 
@@ -1323,18 +1327,28 @@ function addMsg(text, type = 'msg-info') {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  MONSTER IDENTIFICATION
+//  MONSTER IDENTIFICATION & BESTIARY
 // ═══════════════════════════════════════════════════════════════
+// "identified" = visually spotted (glyph/color revealed, within auto-ID range)
+// "known" = in bestiary (defeated one before — name and stats revealed)
+function monsterKnown(monster) {
+  return state.bestiary.has(monster.type);
+}
+
 function monsterDisplayName(monster) {
-  return monster.identified ? monster.name : 'thing';
+  if (!monster.identified) return 'thing';
+  return monsterKnown(monster) ? monster.name : 'creature';
 }
 
 function monsterDisplayGlyph(monster) {
+  // Glyph revealed by proximity identification (visual)
   return monster.identified ? monster.ch : '?';
 }
 
 function monsterDisplayColor(monster) {
-  return monster.identified ? monster.fg : '#888';
+  // Color revealed by proximity identification, slightly muted if not in bestiary
+  if (!monster.identified) return '#888';
+  return monster.fg;
 }
 
 // Roll SAN: roll d100 under current sanity = pass, else fail
@@ -1374,20 +1388,29 @@ function rollSanity(dice, label) {
 function identifyMonster(monster, source) {
   if (monster.identified) return;
   monster.identified = true;
+  const known = monsterKnown(monster);
   // SAN check on identification if not already triggered by sight
   if (!monster.sanChecked) {
     monster.sanChecked = true;
     if (monster.sanDice) {
-      rollSanity(monster.sanDice, `You make out a ${monster.name}!`);
+      if (known) {
+        rollSanity(monster.sanDice, `You recognize a ${monster.name}!`);
+      } else {
+        rollSanity(monster.sanDice, `You make out something horrible!`);
+      }
     } else {
-      addMsg(`You make out a ${monster.name}.`, 'msg-info');
+      if (known) {
+        addMsg(`You spot a ${monster.name}.`, 'msg-info');
+      } else {
+        addMsg(`You make out a creature ahead.`, 'msg-info');
+      }
     }
   } else {
-    // Already took sight SAN hit — just reveal the name
-    if (source === 'proximity') {
+    // Already took sight SAN hit — just acknowledge visual identification
+    if (known) {
       addMsg(`As it draws near, you recognize it — a ${monster.name}.`, 'msg-info');
     } else {
-      addMsg(`You recognize it as a ${monster.name}.`, 'msg-info');
+      addMsg(`The creature draws closer. You have never seen anything like it.`, 'msg-warning');
     }
   }
 }
@@ -1416,7 +1439,7 @@ function monsterSightSanCheck(monster) {
     addMsg('Something stirs nearby.', 'msg-warning');
     return;
   }
-  if (monster.identified) {
+  if (monster.identified && monsterKnown(monster)) {
     rollSanity(monster.sanDice, `The sight of the ${monster.name} tests your resolve.`);
   } else {
     rollSanity(monster.sanDice, `Something in the darkness fills you with dread.`);
@@ -1464,7 +1487,15 @@ function playerAttackMonster(monster) {
   }
 
   if (monster.hp <= 0) {
-    addMsg(`The ${mName} is destroyed!`, 'msg-good');
+    // Add to bestiary on first kill of this type
+    const wasKnown = monsterKnown(monster);
+    state.bestiary.add(monster.type);
+    if (!wasKnown) {
+      addMsg(`The creature falls. You now recognize it — a ${monster.name}.`, 'msg-good');
+      addMsg(`(${monster.name} added to your knowledge.)`, 'msg-lore');
+    } else {
+      addMsg(`The ${monster.name} is destroyed!`, 'msg-good');
+    }
     p.xp += monster.xp;
     monsterKillSanRecovery(monster);
     checkLevelUp();
@@ -1480,10 +1511,12 @@ function monsterKillSanRecovery(monster) {
   const actual = Math.min(recovery, state.player.maxSanity - state.player.sanity);
   if (actual > 0) {
     state.player.sanity += actual;
+    // Use real name here since bestiary was just updated before this call
+    const mName = monster.name;
     const msgs = [
-      `Destroying the ${monster.name} reasserts your grip on reality. +${actual} SAN`,
-      `The ${monster.name} falls. You feel a wave of clarity wash over you. +${actual} SAN`,
-      `With the ${monster.name} defeated, the world feels slightly more sane. +${actual} SAN`,
+      `Destroying the ${mName} reasserts your grip on reality. +${actual} SAN`,
+      `The ${mName} falls. You feel a wave of clarity wash over you. +${actual} SAN`,
+      `With the ${mName} defeated, the world feels slightly more sane. +${actual} SAN`,
     ];
     addMsg(pick(msgs), 'msg-good');
   }
@@ -1744,7 +1777,14 @@ function fireAtTarget(tx, ty) {
   addMsg(`You shoot the ${mName} for ${dmg} damage!`, 'msg-danger');
 
   if (monster.hp <= 0) {
-    addMsg(`The ${mName} collapses!`, 'msg-good');
+    const wasKnown = monsterKnown(monster);
+    state.bestiary.add(monster.type);
+    if (!wasKnown) {
+      addMsg(`The creature collapses. You now recognize it — a ${monster.name}.`, 'msg-good');
+      addMsg(`(${monster.name} added to your knowledge.)`, 'msg-lore');
+    } else {
+      addMsg(`The ${monster.name} collapses!`, 'msg-good');
+    }
     p.xp += monster.xp;
     monsterKillSanRecovery(monster);
     checkLevelUp();
@@ -2007,7 +2047,7 @@ function monsterTurn(monster) {
     // At preferred distance: stay put and watch
     // Passive SAN drain just from being watched
     if (canSee && playerSeesMonster && rng(1, 4) === 1 && monster.identified) {
-      addMsg(`The ${monster.name} watches you from the shadows...`, 'msg-sanity');
+      addMsg(`The ${monsterDisplayName(monster)} watches you from the shadows...`, 'msg-sanity');
     }
     return;
   }
@@ -2025,7 +2065,7 @@ function monsterTurn(monster) {
     if (playerSeesMonster) {
       // Occasional creepy message
       if (rng(1, 6) === 1 && monster.identified) {
-        addMsg(`The ${monster.name} stands motionless, watching you...`, 'msg-sanity');
+        addMsg(`The ${monsterDisplayName(monster)} stands motionless, watching you...`, 'msg-sanity');
       }
       return;
     }
@@ -2547,13 +2587,13 @@ function renderHelp() {
   Dreamlands shop. Entering a dream restores some light.
 
   <span class="subtitle">CREATURES</span>
-  Unknown creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers at a
-  distance. As you approach within ${AUTO_IDENTIFY_RANGE} tiles, you
-  automatically make out what they are. Eldritch
-  horrors cost SANITY to identify — the choice is
-  whether to approach at all. Melee contact also
-  reveals a creature. Use [L]ook to see vague hints
-  about distant unknowns before committing.
+  Distant creatures appear as gray <span style="color:#888;font-weight:bold">?</span> markers. Within
+  ${AUTO_IDENTIFY_RANGE} tiles, you can make out their shape (glyph
+  and color are revealed). However, you won't know
+  a creature's NAME or STATS until you've defeated
+  one of its kind. Your first kill of each type adds
+  it to your knowledge — all future encounters of
+  that type show full information (name, HP, ATK, DEF).
 
   <span style="color:#c33">Shooting at unidentified targets incurs a -${UNIDENTIFIED_ACC_PENALTY * 100}%
   accuracy penalty — you can't aim at what you
@@ -3276,8 +3316,10 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       // Inspect: show info about what's under the cursor
       const monster = state.monsters.find(m => m.x === state.lookX && m.y === state.lookY && m.hp > 0);
-      if (monster && monster.identified) {
-        addMsg(`${monster.name} (HP: ${monster.hp}/${monster.maxHp}) — ${monster.desc}`, 'msg-info');
+      if (monster && monster.identified && monsterKnown(monster)) {
+        addMsg(`${monster.name} (HP: ${monster.hp}/${monster.maxHp} ATK: ${monster.atk} DEF: ${monster.def}) — ${monster.desc}`, 'msg-info');
+      } else if (monster && monster.identified) {
+        addMsg(`Unknown creature (HP: ${monster.hp}/${monster.maxHp}) — ${monster.hint}`, 'msg-warning');
       } else if (monster) {
         addMsg(`${monster.hint}`, 'msg-warning');
       } else {
