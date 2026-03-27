@@ -696,6 +696,7 @@ function initState(profId) {
     messages: [],
     gameOver: false,
     showInventory: false,
+    showBestiary: false,
     showHelp: false,
     lookMode: false,
     lookX: 0,
@@ -2519,7 +2520,31 @@ function renderInventory() {
       text += `  <span class="key">[${i + 1}]</span> ${label} — ${item.desc}\n`;
     }
   }
-  text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[T]</span> Toggle torch · <span class="key">[ESC/I]</span> Close`;
+  text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[T]</span> Toggle torch · <span class="key">[B]</span> Bestiary · <span class="key">[ESC/I]</span> Close`;
+  showOverlay(text);
+}
+
+function renderBestiary() {
+  let text = `<span class="title">═══ BESTIARY ═══</span>\n\n`;
+  if (state.bestiary.size === 0) {
+    text += '  You have not yet identified any creatures.\n';
+    text += '  Defeat a creature to learn what it is.\n';
+  } else {
+    // Sort by minLevel for a natural progression order
+    const known = [];
+    for (const [key, def] of Object.entries(MONSTER_DEFS)) {
+      if (state.bestiary.has(key)) known.push(def);
+    }
+    known.sort((a, b) => a.minLevel - b.minLevel);
+    for (const def of known) {
+      const sanStr = def.sanDice ? `SAN: ${def.sanDice.pass.join('-')}/${def.sanDice.fail.join('-')}` : 'SAN: —';
+      text += `  <span style="color:${def.fg};font-weight:bold">${def.ch}</span> <span style="color:#e8d4a2">${def.name}</span>\n`;
+      text += `    HP: ${def.hp}  ATK: ${def.atk}  DEF: ${def.def}  XP: ${def.xp}  ${sanStr}\n`;
+      text += `    <span style="color:#888">${def.desc}</span>\n\n`;
+    }
+  }
+  text += `  <span style="color:#666">${state.bestiary.size}/${Object.keys(MONSTER_DEFS).length} creatures identified</span>\n`;
+  text += `\n  <span class="key">[ESC/B]</span> Back to inventory`;
   showOverlay(text);
 }
 
@@ -3192,6 +3217,12 @@ document.addEventListener('keydown', (e) => {
       renderInventory();
       return;
     }
+    if (e.key === 'b' || e.key === 'B') {
+      state.showInventory = false;
+      state.showBestiary = true;
+      renderBestiary();
+      return;
+    }
     const num = parseInt(e.key);
     if (num >= 1 && num <= 9) {
       useInventoryItem(num - 1);
@@ -3199,6 +3230,17 @@ document.addEventListener('keydown', (e) => {
         hideOverlay();
         render();
       }
+      return;
+    }
+    return;
+  }
+
+  // Bestiary screen
+  if (state.showBestiary) {
+    if (e.key === 'Escape' || e.key === 'b' || e.key === 'B') {
+      state.showBestiary = false;
+      state.showInventory = true;
+      renderInventory();
       return;
     }
     return;
