@@ -681,8 +681,8 @@ function initState(profId) {
       firearm: null,
       turnCount: 0,
       dreamShield: false,
-      torch: 300,       // torch fuel — depletes each turn, FOV shrinks as it fades
-      maxTorch: 300,
+      torch: 500,       // torch fuel — depletes each turn, FOV shrinks as it fades
+      maxTorch: 500,
       torchLit: true,   // can toggle off to conserve fuel
       profession: prof.id,
       hpRegenRate: prof.hpRegenRate,
@@ -1060,7 +1060,7 @@ function spawnItems() {
   // Spawn consumables (torch oil more likely when running low)
   const torchLow = state.player.torch < 0.5 * state.player.maxTorch;
   const consumableKeys = ['healingHerb', 'laudanum', 'necronomicon'];
-  if (torchLow || Math.random() < 0.4) consumableKeys.push('torchOil');
+  if (torchLow || Math.random() < 0.6) consumableKeys.push('torchOil');
   const numConsumables = rng(2, 4);
   for (let i = 0; i < numConsumables; i++) {
     const room = pick(state.rooms.slice(1));
@@ -2556,7 +2556,7 @@ function tryDescend() {
   state.catsEyeActive = false;
   state.player.dreamShield = false;
   // Dreaming restores some torch fuel (but not full)
-  state.player.torch = Math.min(state.player.maxTorch, state.player.torch + 50);
+  state.player.torch = Math.min(state.player.maxTorch, state.player.torch + state.player.maxTorch * 0.5);
   // Enter the Dreamlands shop
   enterDreamlands();
 }
