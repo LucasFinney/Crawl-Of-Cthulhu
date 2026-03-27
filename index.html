@@ -183,7 +183,7 @@ const MONSTER_DEFS = {
     hp: 20, atk: 7, def: 3, xp: 18, speed: 1,
     sanDice: { pass: [0,2], fail: [1,6] }, desc: 'A fish-frog hybrid with bulging, unblinking eyes.',
     hint: 'Something wet and glistening. It smells of brine.',
-    minLevel: 3, aggression: 10, behavior: 'normal'
+    minLevel: 3, aggression: 10, behavior: 'ambush'
   },
   miGo: {
     type: 'miGo', name: 'mi-go', ch: 'M', fg: '#e74c3c',
@@ -855,15 +855,20 @@ function generateLevelInner() {
     state.map[ay * WIDTH + ax] = TILE.ALTAR;
   }
 
-  // Scatter water pools
-  for (let i = 0; i < rng(0, 3); i++) {
+  // Scatter water pools (larger and more common on level 3+ for Deep Ones)
+  const minPools = state.dlevel >= 3 ? 2 : 0;
+  const maxPools = state.dlevel >= 3 ? 5 : 3;
+  const poolSpread = state.dlevel >= 3 ? 2 : 1;
+  for (let i = 0; i < rng(minPools, maxPools); i++) {
     const room = pick(state.rooms);
-    const wx = rng(room.x + 1, room.x + room.w - 2);
-    const wy = rng(room.y + 1, room.y + room.h - 2);
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
+    const wx = rng(room.x + 2, room.x + room.w - 3);
+    const wy = rng(room.y + 2, room.y + room.h - 3);
+    for (let dy = -poolSpread; dy <= poolSpread; dy++) {
+      for (let dx = -poolSpread; dx <= poolSpread; dx++) {
         const nx = wx + dx, ny = wy + dy;
-        if (state.map[ny * WIDTH + nx] === TILE.FLOOR && Math.random() < 0.5) {
+        if (nx > room.x && nx < room.x + room.w - 1 &&
+            ny > room.y && ny < room.y + room.h - 1 &&
+            state.map[ny * WIDTH + nx] === TILE.FLOOR && Math.random() < 0.5) {
           state.map[ny * WIDTH + nx] = TILE.WATER;
         }
       }
@@ -918,6 +923,52 @@ function carveCorridor(x1, y1, x2, y2) {
   }
 }
 
+// Find valid ghoul spawn positions: behind doors or in narrow corridors
+function findGhoulSpawnPositions() {
+  const positions = [];
+  const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+  for (let y = 1; y < HEIGHT - 1; y++) {
+    for (let x = 1; x < WIDTH - 1; x++) {
+      // Category A: corridor tile adjacent to a closed door (behind-door ambush)
+      if (state.map[y * WIDTH + x] === TILE.DOOR_CLOSED) {
+        for (const [dx, dy] of dirs) {
+          const nx = x + dx, ny = y + dy;
+          if (state.map[ny * WIDTH + nx] === TILE.CORRIDOR) {
+            positions.push({ x: nx, y: ny, priority: 2 });
+          }
+        }
+      }
+    }
+  }
+  // Category B: narrow corridor tiles (2+ adjacent walls)
+  for (let y = 1; y < HEIGHT - 1; y++) {
+    for (let x = 1; x < WIDTH - 1; x++) {
+      if (state.map[y * WIDTH + x] !== TILE.CORRIDOR) continue;
+      let wallCount = 0;
+      for (const [dx, dy] of dirs) {
+        if (state.map[(y + dy) * WIDTH + (x + dx)] === TILE.WALL) wallCount++;
+      }
+      if (wallCount >= 2) {
+        positions.push({ x, y, priority: 1 });
+      }
+    }
+  }
+  return positions;
+}
+
+// Find valid water tile spawn positions for Deep Ones
+function findWaterSpawnPositions() {
+  const positions = [];
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      if (state.map[y * WIDTH + x] === TILE.WATER) {
+        positions.push({ x, y });
+      }
+    }
+  }
+  return positions;
+}
+
 function spawnMonsters() {
   const count = rng(4, 7) + state.dlevel;
   for (let i = 0; i < count; i++) {
@@ -936,9 +987,43 @@ function spawnMonsters() {
       if (roll <= 0) { def = eligible[j]; break; }
     }
 
-    const room = state.rooms[rng(1, state.rooms.length - 1)]; // Not first room
-    const mx = rng(room.x + 1, room.x + room.w - 2);
-    const my = rng(room.y + 1, room.y + room.h - 2);
+    // Type-specific spawn positioning
+    let mx, my;
+    if (def.type === 'ghoul') {
+      // Ghouls lurk behind doors and in narrow corridors
+      const ghoulPositions = findGhoulSpawnPositions()
+        .filter(p => !state.monsters.some(m => m.x === p.x && m.y === p.y));
+      if (ghoulPositions.length > 0) {
+        // Prefer behind-door positions (priority 2) over narrow corridors
+        ghoulPositions.sort((a, b) => b.priority - a.priority);
+        const topPriority = ghoulPositions[0].priority;
+        const best = ghoulPositions.filter(p => p.priority === topPriority);
+        const pos = pick(best);
+        mx = pos.x;
+        my = pos.y;
+      } else {
+        // Fallback: random room position
+        const room = state.rooms[rng(1, state.rooms.length - 1)];
+        mx = rng(room.x + 1, room.x + room.w - 2);
+        my = rng(room.y + 1, room.y + room.h - 2);
+      }
+    } else if (def.type === 'deepOne') {
+      // Deep Ones only spawn in water
+      const waterPositions = findWaterSpawnPositions()
+        .filter(p => !state.monsters.some(m => m.x === p.x && m.y === p.y));
+      if (waterPositions.length > 0) {
+        const pos = pick(waterPositions);
+        mx = pos.x;
+        my = pos.y;
+      } else {
+        continue; // No water — skip this Deep One spawn
+      }
+    } else {
+      // Default: random room position (not first room)
+      const room = state.rooms[rng(1, state.rooms.length - 1)];
+      mx = rng(room.x + 1, room.x + room.w - 2);
+      my = rng(room.y + 1, room.y + room.h - 2);
+    }
 
     // Scale stats with dungeon level
     const scale = 1 + (state.dlevel - def.minLevel) * 0.1;
@@ -1119,6 +1204,22 @@ function computeFOV() {
         state.stairsFound = true;
       }
       if (state.map[idx] === TILE.WALL || state.map[idx] === TILE.DOOR_CLOSED) break;
+    }
+  }
+
+  // Water murkiness: can only see into water tiles within 1 tile of the player
+  // Water does NOT block LOS — you can see the far wall through a pool,
+  // but you can't see what lurks IN the deeper water.
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      const idx = y * WIDTH + x;
+      if (state.map[idx] === TILE.WATER && state.visible[idx]) {
+        const waterDist = Math.max(Math.abs(x - px), Math.abs(y - py));
+        if (waterDist > 1) {
+          state.visible[idx] = 0;
+          // explored stays set — player remembers water is there
+        }
+      }
     }
   }
 }
@@ -1531,7 +1632,10 @@ function monsterAttackPlayer(monster) {
     monster.ambushStruck = true;
     const savedAtk = monster.atk;
     monster.atk = monster.atk * 2;
-    addMsg(`The ${mName} lunges from the shadows!`, 'msg-danger');
+    const ambushMsg = monster.type === 'deepOne'
+      ? `The ${mName} erupts from the murky water!`
+      : `The ${mName} lunges from the shadows!`;
+    addMsg(ambushMsg, 'msg-danger');
     meleeAttack(monster, state.player, `The ${mName}`, 'you');
     monster.atk = savedAtk;
   } else {
