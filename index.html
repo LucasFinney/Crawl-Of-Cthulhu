@@ -592,11 +592,12 @@ const CAT_COMMENTS_DEEP = [
 ];
 
 // ── Sanity event table ──────────────────────────────────────
+// Sanity event thresholds as proportion of maxSanity (triggered as SAN drops below each)
 const SANITY_EVENTS = [
-  { threshold: 60, msg: 'The shadows seem to shift when you look away...', type: 'msg-sanity' },
-  { threshold: 40, msg: 'You hear whispers in a language older than mankind.', type: 'msg-sanity' },
-  { threshold: 25, msg: 'The walls are breathing. They are BREATHING.', type: 'msg-danger' },
-  { threshold: 10, msg: 'Something vast and incomprehensible watches you from behind the stars.', type: 'msg-danger' },
+  { pct: 0.60, msg: 'The shadows seem to shift when you look away...', type: 'msg-sanity' },
+  { pct: 0.40, msg: 'You hear whispers in a language older than mankind.', type: 'msg-sanity' },
+  { pct: 0.25, msg: 'The walls are breathing. They are BREATHING.', type: 'msg-danger' },
+  { pct: 0.10, msg: 'Something vast and incomprehensible watches you from behind the stars.', type: 'msg-danger' },
 ];
 
 // ── Utility ─────────────────────────────────────────────────
@@ -696,6 +697,7 @@ function initState(profId) {
     messages: [],
     gameOver: false,
     showInventory: false,
+    inventoryDropMode: false,
     showBestiary: false,
     showHelp: false,
     lookMode: false,
@@ -704,7 +706,7 @@ function initState(profId) {
     aimTurns: 0,
     aimX: -1,
     aimY: -1,
-    lastSanityEvent: 100,
+    lastSanityEvent: prof.sanity,
     lastSpookyTurn: 0,
     stairsFound: false,
     stairsX: -1,
@@ -1443,7 +1445,7 @@ function renderStats() {
     <span class="stat stat-hp">HP: ${p.hp}/${p.maxHp}</span>
     <span class="stat stat-san">SAN: ${p.sanity}/${p.maxSanity}</span>
     <span class="stat stat-stam">STM: ${p.stamina}/${p.maxStamina}${p.running ? ' [RUN]' : ''}</span>
-    <span class="stat" style="color:${!p.torchLit ? '#666' : p.torch > 100 ? '#f39c12' : p.torch > 30 ? '#cc7000' : '#cc3333'}">Torch: ${p.torchLit ? p.torch : 'OFF'}</span>
+    <span class="stat" style="color:${!p.torchLit ? '#666' : p.torch > p.maxTorch * 0.5 ? '#f39c12' : p.torch > p.maxTorch * 0.17 ? '#cc7000' : '#cc3333'}">Torch: ${p.torchLit ? p.torch : 'OFF'}</span>
     <span class="stat stat-atk">ATK: ${p.atk}${p.weapon ? ` [${p.weapon.name}]` : ''}</span>
     <span class="stat stat-def">DEF: ${p.def}${p.armor ? ` [${p.armor.name}]` : ''}</span>
     <span class="stat" style="color:#c0a030">${ammoDisp}</span>
@@ -2274,15 +2276,17 @@ function processMonsters() {
 // ═══════════════════════════════════════════════════════════════
 function checkSanityEvents() {
   const san = state.player.sanity;
+  const maxSan = state.player.maxSanity;
   for (const evt of SANITY_EVENTS) {
-    if (san <= evt.threshold && state.lastSanityEvent > evt.threshold) {
+    const threshold = Math.floor(maxSan * evt.pct);
+    if (san <= threshold && state.lastSanityEvent > threshold) {
       addMsg(evt.msg, evt.type);
     }
   }
   state.lastSanityEvent = san;
 
   // Random hallucination at low sanity (cosmetic, no SAN cost)
-  if (san < 30 && Math.random() < 0.05) {
+  if (san < state.player.maxSanity * 0.3 && Math.random() < 0.05) {
     addMsg(pick([
       'The floor writhes with invisible worms.',
       'You smell something sweet and rotten.',
@@ -2584,8 +2588,9 @@ function dropInventoryItem(index) {
   item.x = p.x;
   item.y = p.y;
   state.items.push(item);
-  addMsg(`You drop the ${item.name}.`, 'msg-info');
-  state.showInventory = false;
+  addMsg(`You drop the ${item.name} on the ground.`, 'msg-info');
+  // Stay in inventory screen so player can drop more
+  renderInventory();
 }
 
 function endPlayerTurn() {
@@ -2616,13 +2621,18 @@ function endPlayerTurn() {
 
   // Torch depletion (only when lit; 1 fuel per turn)
   if (state.player.torchLit && state.player.torch > 0) {
-    state.player.torch -= 1;
-    state.player.torch = Math.max(0, state.player.torch);
-    // Warning messages at thresholds
-    if (state.player.torch === state.player.maxTorch*0.5) addMsg('Your light flickers and dims...', 'msg-warning');
-    if (state.player.torch === state.player.maxTorch*0.25) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
-    if (state.player.torch === state.player.maxTorch*0.1) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
-    if (state.player.torch === 0) {
+    const prevTorch = state.player.torch;
+    state.player.torch = Math.max(0, state.player.torch - 1);
+    const t = state.player.torch;
+    const mt = state.player.maxTorch;
+    // Warning messages at thresholds (trigger once as we cross each boundary)
+    const halfMark = Math.floor(mt * 0.5);
+    const quarterMark = Math.floor(mt * 0.25);
+    const tenthMark = Math.floor(mt * 0.1);
+    if (prevTorch > halfMark && t <= halfMark) addMsg('Your light flickers and dims...', 'msg-warning');
+    if (prevTorch > quarterMark && t <= quarterMark) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
+    if (prevTorch > tenthMark && t <= tenthMark) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
+    if (t === 0) {
       addMsg('Your light goes out. You are in near-total darkness!', 'msg-danger');
       state.player.torchLit = false;
     }
@@ -2661,6 +2671,10 @@ function renderInventory() {
   text += '\n';
 
   // Carried items
+  const dropMode = state.inventoryDropMode;
+  if (dropMode) {
+    text += `  <span style="color:#cc3333">── DROP MODE ── Select an item to drop ──</span>\n`;
+  }
   if (p.inventory.length === 0) {
     text += '  (nothing carried)\n';
   } else {
@@ -2670,10 +2684,14 @@ function renderInventory() {
       if (item.type === 'ammo') {
         label += ` (${item.amount})`;
       }
-      text += `  <span class="key">[${i + 1}]</span> ${label} — ${item.desc}\n`;
+      const action = dropMode ? 'DROP' : '';
+      text += `  <span class="key">[${i + 1}]</span>${dropMode ? ' <span style="color:#cc3333">✕</span>' : ''} ${label} — ${item.desc}\n`;
     }
   }
-  text += `\n  <span class="key">[1-9]</span> Use item · <span class="key">[T]</span> Toggle torch · <span class="key">[B]</span> Bestiary · <span class="key">[ESC/I]</span> Close`;
+  const modeLabel = dropMode
+    ? `<span style="color:#cc3333">[D] Cancel drop</span>`
+    : `<span class="key">[D]</span> Drop item`;
+  text += `\n  <span class="key">[1-9]</span> ${dropMode ? 'Drop' : 'Use'} item · ${modeLabel} · <span class="key">[T]</span> Torch · <span class="key">[B]</span> Bestiary · <span class="key">[ESC/I]</span> Close`;
   showOverlay(text);
 }
 
@@ -3350,6 +3368,7 @@ document.addEventListener('keydown', (e) => {
   if (state.showInventory) {
     if (e.key === 'Escape' || e.key === 'i' || e.key === 'I') {
       state.showInventory = false;
+      state.inventoryDropMode = false;
       hideOverlay();
       render();
       return;
@@ -3376,9 +3395,19 @@ document.addEventListener('keydown', (e) => {
       renderBestiary();
       return;
     }
+    if (e.key === 'd' || e.key === 'D') {
+      state.inventoryDropMode = !state.inventoryDropMode;
+      renderInventory();
+      return;
+    }
     const num = parseInt(e.key);
     if (num >= 1 && num <= 9) {
-      useInventoryItem(num - 1);
+      if (state.inventoryDropMode) {
+        state.inventoryDropMode = false;
+        dropInventoryItem(num - 1);
+      } else {
+        useInventoryItem(num - 1);
+      }
       if (!state.showInventory) {
         hideOverlay();
         render();
