@@ -290,7 +290,7 @@ const ITEM_DEFS = {
     name: 'torch oil', ch: '!', fg: '#f39c12', type: 'consumable',
     desc: 'A flask of lamp oil. Restores light.',
     use(player) {
-      const restore = rng(60, 100);
+      const restore = rng(200, 400);
       player.torch = Math.min(player.maxTorch, player.torch + restore);
       return `You refuel your light. +${restore} torch fuel.`;
     }
@@ -681,8 +681,8 @@ function initState(profId) {
       firearm: null,
       turnCount: 0,
       dreamShield: false,
-      torch: 300,       // torch fuel — depletes each turn, FOV shrinks as it fades
-      maxTorch: 300,
+      torch: 500,       // torch fuel — depletes each turn, FOV shrinks as it fades
+      maxTorch: 500,
       torchLit: true,   // can toggle off to conserve fuel
       profession: prof.id,
       hpRegenRate: prof.hpRegenRate,
