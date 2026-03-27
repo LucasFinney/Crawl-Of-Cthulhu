@@ -2619,9 +2619,9 @@ function endPlayerTurn() {
     state.player.torch -= 1;
     state.player.torch = Math.max(0, state.player.torch);
     // Warning messages at thresholds
-    if (state.player.torch === maxTorch*0.5) addMsg('Your light flickers and dims...', 'msg-warning');
-    if (state.player.torch === maxTorch*0.25) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
-    if (state.player.torch === maxTorch*0.1) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
+    if (state.player.torch === state.player.maxTorch*0.5) addMsg('Your light flickers and dims...', 'msg-warning');
+    if (state.player.torch === state.player.maxTorch*0.25) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
+    if (state.player.torch === state.player.maxTorch*0.1) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
     if (state.player.torch === 0) {
       addMsg('Your light goes out. You are in near-total darkness!', 'msg-danger');
       state.player.torchLit = false;
