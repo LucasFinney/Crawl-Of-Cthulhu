@@ -1207,17 +1207,56 @@ function computeFOV() {
     }
   }
 
-  // Water murkiness: can only see into water tiles within 1 tile of the player
-  // Water does NOT block LOS — you can see the far wall through a pool,
-  // but you can't see what lurks IN the deeper water.
-  for (let y = 0; y < HEIGHT; y++) {
-    for (let x = 0; x < WIDTH; x++) {
-      const idx = y * WIDTH + x;
-      if (state.map[idx] === TILE.WATER && state.visible[idx]) {
-        const waterDist = Math.max(Math.abs(x - px), Math.abs(y - py));
-        if (waterDist > 1) {
-          state.visible[idx] = 0;
-          // explored stays set — player remembers water is there
+  // Water visibility rules:
+  // ON LAND: can only see water tiles within 1 tile (murky surface)
+  // IN WATER: can see all connected water tiles (flood-fill), but NOT dry land
+  const playerOnWater = state.map[py * WIDTH + px] === TILE.WATER;
+
+  if (playerOnWater) {
+    // Flood-fill from player through connected water tiles
+    const waterVisible = new Uint8Array(WIDTH * HEIGHT);
+    const queue = [[px, py]];
+    waterVisible[py * WIDTH + px] = 1;
+    while (queue.length > 0) {
+      const [cx, cy] = queue.shift();
+      for (const [ddx, ddy] of [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[-1,1],[1,-1],[1,1]]) {
+        const nx = cx + ddx, ny = cy + ddy;
+        if (nx < 0 || nx >= WIDTH || ny < 0 || ny >= HEIGHT) continue;
+        const ni = ny * WIDTH + nx;
+        if (waterVisible[ni]) continue;
+        if (state.map[ni] === TILE.WATER) {
+          waterVisible[ni] = 1;
+          queue.push([nx, ny]);
+        }
+      }
+    }
+    // Apply: connected water tiles are visible; non-water tiles hidden except adjacent
+    for (let y = 0; y < HEIGHT; y++) {
+      for (let x = 0; x < WIDTH; x++) {
+        const idx = y * WIDTH + x;
+        if (state.map[idx] === TILE.WATER) {
+          // Connected water is visible; disconnected water follows normal FOV
+          if (waterVisible[idx]) {
+            state.visible[idx] = 1;
+            state.explored[idx] = 1;
+          }
+        } else if (state.visible[idx]) {
+          // Non-water tile: only visible if adjacent to player (for navigation)
+          const d = Math.max(Math.abs(x - px), Math.abs(y - py));
+          if (d > 1) state.visible[idx] = 0;
+        }
+      }
+    }
+  } else {
+    // On land: hide water tiles beyond 1 tile (murky, can't see into depths)
+    for (let y = 0; y < HEIGHT; y++) {
+      for (let x = 0; x < WIDTH; x++) {
+        const idx = y * WIDTH + x;
+        if (state.map[idx] === TILE.WATER && state.visible[idx]) {
+          const waterDist = Math.max(Math.abs(x - px), Math.abs(y - py));
+          if (waterDist > 1) {
+            state.visible[idx] = 0;
+          }
         }
       }
     }
@@ -1354,8 +1393,9 @@ function render() {
       } else if (explored) {
         const tile = state.map[idx];
         const td = TILE_DISPLAY[tile];
-        // Dim explored tiles
-        html += `<span style="color:#1a1a28">${td.ch}</span>`;
+        // Dim explored tiles — water stays slightly more visible (dark blue tint)
+        const exploredColor = tile === TILE.WATER ? '#0d2f4a' : '#1a1a28';
+        html += `<span style="color:${exploredColor}">${td.ch}</span>`;
       } else {
         html += ' ';
       }
