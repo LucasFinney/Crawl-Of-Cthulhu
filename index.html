@@ -1921,6 +1921,12 @@ function fireAtTarget(tx, ty) {
   monster.hp -= dmg;
   addMsg(`You shoot the ${mName} for ${dmg} damage!`, 'msg-danger');
 
+  // Being shot rouses ambush monsters and wakes them
+  if (!monster.awake) monster.awake = true;
+  if (monster.behavior === 'ambush' && !monster.ambushTriggered) {
+    monster.ambushTriggered = true;
+  }
+
   if (monster.hp <= 0) {
     const wasKnown = monsterKnown(monster);
     state.bestiary.add(monster.type);
@@ -1942,12 +1948,15 @@ function fireAtTarget(tx, ty) {
 
 function wakeNearbyMonsters() {
   // Gunshots are LOUD — wake all monsters within a large radius
+  // This also rouses ambush monsters out of hiding
   const GUNSHOT_RADIUS = 20;
   for (const m of state.monsters) {
-    if (!m.awake && m.hp > 0) {
-      const d = dist(state.player.x, state.player.y, m.x, m.y);
-      if (d < GUNSHOT_RADIUS) {
-        m.awake = true;
+    if (m.hp <= 0) continue;
+    const d = dist(state.player.x, state.player.y, m.x, m.y);
+    if (d < GUNSHOT_RADIUS) {
+      m.awake = true;
+      if (m.behavior === 'ambush' && !m.ambushTriggered) {
+        m.ambushTriggered = true;
       }
     }
   }
