@@ -1987,7 +1987,7 @@ function monsterTurn(monster) {
   // Sits motionless until player is nearby, then attacks with bonus damage.
   // If player moves away after waking, slowly pursues.
   if (behavior === 'ambush') {
-    const adjacent = Math.abs(monster.x - px) <= 3 && Math.abs(monster.y - py) <= 3;
+    const adjacent = Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1;
     if (adjacent) {
       // Ambush strike: first hit deals bonus damage
       if (!monster.ambushTriggered) {
