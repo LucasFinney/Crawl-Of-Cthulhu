@@ -1058,7 +1058,7 @@ function spawnItems() {
   }
 
   // Spawn consumables (torch oil more likely when running low)
-  const torchLow = state.player.torch < 150;
+  const torchLow = state.player.torch < 0.5 * state.player.maxTorch;
   const consumableKeys = ['healingHerb', 'laudanum', 'necronomicon'];
   if (torchLow || Math.random() < 0.4) consumableKeys.push('torchOil');
   const numConsumables = rng(2, 4);
@@ -2614,14 +2614,14 @@ function endPlayerTurn() {
   // Morphine wears off
   if (state.player.morphineTurns > 0) state.player.morphineTurns--;
 
-  // Torch depletion (only when lit; 1 fuel per turn, running drains faster)
+  // Torch depletion (only when lit; 1 fuel per turn)
   if (state.player.torchLit && state.player.torch > 0) {
-    state.player.torch -= state.player.running ? 2 : 1;
+    state.player.torch -= 1;
     state.player.torch = Math.max(0, state.player.torch);
     // Warning messages at thresholds
-    if (state.player.torch === 100) addMsg('Your light flickers and dims...', 'msg-warning');
-    if (state.player.torch === 50) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
-    if (state.player.torch === 20) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
+    if (state.player.torch === maxTorch*0.5) addMsg('Your light flickers and dims...', 'msg-warning');
+    if (state.player.torch === maxTorch*0.25) addMsg('Your torch sputters — the darkness is closing in.', 'msg-danger');
+    if (state.player.torch === maxTorch*0.1) addMsg('The flame gutters! You can barely see your own hands.', 'msg-danger');
     if (state.player.torch === 0) {
       addMsg('Your light goes out. You are in near-total darkness!', 'msg-danger');
       state.player.torchLit = false;
@@ -2760,7 +2760,7 @@ function renderHelp() {
   doors (+) block line of sight — bump into them to open.
 
   Your torch burns down each turn. As it dims, your
-  view range shrinks. Running burns fuel faster. Find
+  view range shrinks. Find
   torch oil to refuel, or buy Everburning Oil from the
   Dreamlands shop. Entering a dream restores some light.
 
