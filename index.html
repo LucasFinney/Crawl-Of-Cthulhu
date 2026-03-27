@@ -377,7 +377,7 @@ const PROFESSIONS = {
     extraAmmo: 2,  // extra magazines/stacks beyond default
     melee: { name: 'combat knife', ch: ')', fg: '#aaa', type: 'weapon', atk: 3, desc: 'A military-issue trench knife. +3 ATK.' },
     items: ['laudanum'],
-    hpRegenRate: 5,     // 1 HP every N turns
+    hpRegenRate: 20,     // 1 HP every N turns
     staminaRegenRate: 2, // 1 STM every N turns
     passive: 'Steady hands: no accuracy penalty for first shot without aiming.',
     passiveId: 'steadyHands',
@@ -394,7 +394,7 @@ const PROFESSIONS = {
     extraAmmo: 0,
     melee: null,
     items: ['medicalBag', 'medicalBag', 'morphine'],
-    hpRegenRate: 3,       // faster HP regen (every 3 turns vs 5)
+    hpRegenRate: 10,       // faster HP regen (every 3 turns vs 5)
     staminaRegenRate: 2,
     passive: 'Field medicine: HP regenerates faster. Healing items are 50% more effective.',
     passiveId: 'fieldMedicine',
@@ -411,7 +411,7 @@ const PROFESSIONS = {
     extraAmmo: 1,
     melee: null,
     items: ['hipFlask', 'hipFlask'],
-    hpRegenRate: 5,
+    hpRegenRate: 20,
     staminaRegenRate: 2,
     passive: 'Keen eye: wider field of view (150° cone).',
     passiveId: 'keenEye',
@@ -2855,8 +2855,8 @@ function titleScreen() {
   ██╔════╝██╔══██╗██╔══██╗██║    ██║██║
   ██║     ██████╔╝███████║██║ █╗ ██║██║
   ██║     ██╔══██╗██╔══██║██║███╗██║██║
-   ╚██████╗██║  ██║██║  ██║╚███╔███╔╝███████╗
-    ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝
+     ╚██████╗██║  ██║██║  ██║╚███╔███╔╝███████╗
+      ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝
         OF CTHULHU</span>
 
   <span class="subtitle">A Roguelike Descent into Madness</span>
