@@ -708,6 +708,7 @@ function initState(profId) {
     aimY: -1,
     lastSanityEvent: prof.sanity,
     lastSpookyTurn: 0,
+    activeEventChain: null,  // { beats: [...], currentBeat: 0, nextTurn: N }
     stairsFound: false,
     stairsX: -1,
     stairsY: -1,
@@ -2296,6 +2297,26 @@ function checkSanityEvents() {
     ]), 'msg-sanity');
   }
 
+  // ── Active event chain: deliver next beat if it's time ──
+  if (state.activeEventChain) {
+    const chain = state.activeEventChain;
+    if (state.turn >= chain.nextTurn) {
+      const beat = chain.beats[chain.currentBeat];
+      if (beat.dice) {
+        rollSanity(beat.dice, beat.msg);
+      } else {
+        addMsg(beat.msg, beat.style || 'msg-lore');
+      }
+      chain.currentBeat++;
+      if (chain.currentBeat >= chain.beats.length) {
+        state.activeEventChain = null; // chain complete
+      } else {
+        chain.nextTurn = state.turn + rng(3, 5); // next beat in 3-5 turns
+      }
+    }
+    return; // don't trigger new events while a chain is playing
+  }
+
   // Ambient spooky events — only when no enemies are active (awake)
   const anyAwake = state.monsters.some(m => m.hp > 0 && m.awake);
   if (anyAwake) return;
@@ -2309,6 +2330,71 @@ function checkSanityEvents() {
 
   state.lastSpookyTurn = state.turn;
 
+  // ── Multi-turn event chains (rarer, more impactful) ──
+  const EVENT_CHAINS = [
+    { beats: [
+      { msg: 'You hear something wet dragging itself along the corridor behind you.', style: 'msg-warning' },
+      { msg: 'The dragging sound is closer now.', style: 'msg-warning' },
+      { msg: 'The sound stops. The silence is worse.', dice: { pass: [0,1], fail: [1,6] } },
+    ]},
+    { beats: [
+      { msg: 'A faint scratching comes from behind the wall to your left.', style: 'msg-lore' },
+      { msg: 'The scratching has moved. It\'s following you.', style: 'msg-warning' },
+      { msg: 'It stops. A single, deliberate knock comes from the other side of the wall.', dice: { pass: [1,2], fail: [1,6] } },
+    ]},
+    { beats: [
+      { msg: 'You catch a whiff of perfume — floral, sweet, utterly out of place down here.', style: 'msg-lore' },
+      { msg: 'The scent is stronger now. It\'s coming from the dark ahead.', style: 'msg-warning' },
+      { msg: 'The perfume turns rancid. Underneath it: the stench of something long dead.', dice: { pass: [0,1], fail: [1,4] } },
+    ]},
+    { beats: [
+      { msg: 'A child\'s humming echoes from somewhere in the tunnels.', style: 'msg-warning' },
+      { msg: 'The humming is coming from the direction you just came from.', style: 'msg-warning' },
+      { msg: 'The humming stops mid-note. A small voice says: "Found you."', dice: { pass: [1,3], fail: [1,8] } },
+    ]},
+    { beats: [
+      { msg: 'You notice your footsteps have an echo. An extra step, slightly delayed.', style: 'msg-lore' },
+      { msg: 'The extra footstep is still there. It\'s getting closer to being in sync with yours.', style: 'msg-warning' },
+      { msg: 'The footsteps are perfectly synchronized now. Then they take one more step than you.', dice: { pass: [1,2], fail: [1,6] } },
+    ]},
+    { beats: [
+      { msg: 'A distant sound — rhythmic, like a heartbeat — pulses through the stone.', style: 'msg-lore' },
+      { msg: 'The pulse is louder. The walls vibrate faintly in time.', style: 'msg-warning' },
+      { msg: 'The pulsing stops. In the silence, you realize: it was your heartbeat, amplified a thousandfold.', dice: { pass: [0,1], fail: [1,4] } },
+    ]},
+    // Darkness-specific chains
+    ...(inDark ? [
+      { beats: [
+        { msg: 'Something warm presses against your back in the darkness.', style: 'msg-warning' },
+        { msg: 'It\'s still there. You feel it breathing. Slowly. Patiently.', style: 'msg-danger' },
+        { msg: 'It leans close to your ear and whispers something you almost understand.', dice: { pass: [1,4], fail: [1,10] } },
+      ]},
+      { beats: [
+        { msg: 'You feel fingers brush across the top of your head in the dark.', style: 'msg-warning' },
+        { msg: 'The fingers return. They trace the shape of your face. Gently.', style: 'msg-danger' },
+        { msg: 'They stop. You hear a wet, satisfied sound from somewhere above you.', dice: { pass: [1,3], fail: [1,8] } },
+      ]},
+    ] : []),
+  ];
+
+  // 25% chance to start a chain instead of a one-shot event (30% in dark)
+  const chainChance = inDark ? 0.30 : 0.25;
+  if (Math.random() < chainChance) {
+    const chain = pick(EVENT_CHAINS);
+    state.activeEventChain = {
+      beats: chain.beats,
+      currentBeat: 0,
+      nextTurn: state.turn, // first beat plays immediately
+    };
+    // Deliver first beat now
+    const firstBeat = chain.beats[0];
+    addMsg(firstBeat.msg, firstBeat.style || 'msg-lore');
+    state.activeEventChain.currentBeat = 1;
+    state.activeEventChain.nextTurn = state.turn + rng(3, 5);
+    return;
+  }
+
+  // ── Single-shot events (existing system) ──
   // Mild events (most common) — SAN roll: 0/1d4
   const mildEvents = [
     'A cold draft carries the scent of brine and decay.',
@@ -2733,7 +2819,7 @@ function renderHelp() {
   <span class="key">Movement:</span>  Arrow keys, WASD, or Numpad (8-way)
   <span class="key">Look/Aim:</span>  [L] — move cursor to inspect or aim
   <span class="key">Cycle:</span>     [ / ] in look mode — snap to next/prev target
-  <span class="key">Inspect:</span>   [Enter] in look mode — view details
+  <span class="key">Inspect:</span>   Look mode status bar shows tile details
   <span class="key">Fire:</span>      [F] in look mode — shoot at cursor
   <span class="key">Reload:</span>    [R] — reload your firearm (takes turns)
   <span class="key">Turn:</span>      [[] / []] — rotate facing
@@ -3537,21 +3623,6 @@ document.addEventListener('keydown', (e) => {
       endPlayerTurn(); // costs a real turn — monsters move!
       return;
     }
-    if (e.key === 'Enter') {
-      // Inspect: show info about what's under the cursor
-      const monster = state.monsters.find(m => m.x === state.lookX && m.y === state.lookY && m.hp > 0);
-      if (monster && monster.identified && monsterKnown(monster)) {
-        addMsg(`${monster.name} (HP: ${monster.hp}/${monster.maxHp} ATK: ${monster.atk} DEF: ${monster.def}) — ${monster.desc}`, 'msg-info');
-      } else if (monster && monster.identified) {
-        addMsg(`Unknown creature (HP: ${monster.hp}/${monster.maxHp}) — ${monster.hint}`, 'msg-warning');
-      } else if (monster) {
-        addMsg(`${monster.hint}`, 'msg-warning');
-      } else {
-        addMsg(describeTile(state.lookX, state.lookY), 'msg-info');
-      }
-      render();
-      return;
-    }
     if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
       state.lookMode = false;
       state.aimTurns = 0;
@@ -3606,7 +3677,7 @@ document.addEventListener('keydown', (e) => {
       break;
     case 'l': case 'L': // Look
       state.lookMode = true;
-      addMsg('Look mode — move cursor to inspect. [/] Cycle targets · [Enter] Examine · [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
+      addMsg('Look mode — move cursor to inspect. [/] Cycle targets · [F] Fire · [.] Aim · [ESC/L] exit.', 'msg-info');
       render();
       break;
     case 'r': case 'R': // Reload firearm
