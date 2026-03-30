@@ -315,6 +315,11 @@ const ITEM_DEFS = {
     ammoType: '12 gauge', amount: 0,
     desc: 'A few red shotgun shells.',
   },
+  ammo_30_06: {
+    name: '.30-06 cartridges', ch: '=', fg: '#8B7355', type: 'ammo',
+    ammoType: '.30-06', amount: 0,
+    desc: 'A box of .30-06 rifle cartridges.',
+  },
   // Firearm items (can be picked up to swap firearms)
   m1911: {
     name: 'M1911 pistol', ch: ')', fg: '#aaa', type: 'firearm',
@@ -330,6 +335,11 @@ const ITEM_DEFS = {
     name: 'coach shotgun', ch: ')', fg: '#7f8c8d', type: 'firearm',
     desc: 'A sawn-off double-barrel. Devastating up close.',
     firearmId: 'shotgun',
+  },
+  enfield1917: {
+    name: 'M1917 Enfield', ch: ')', fg: '#556B2F', type: 'firearm',
+    desc: 'A bolt-action rifle from the Great War. Precise and powerful.',
+    firearmId: 'enfield1917',
   },
 };
 
@@ -376,6 +386,20 @@ const FIREARM_DEFS = {
     ammoType: '12 gauge',
     accuracy: 0.70,     // hard to miss with a shotgun
     sound: 'The shotgun BOOMS.',
+  },
+  enfield1917: {
+    id: 'enfield1917',
+    name: 'M1917 Enfield',
+    desc: 'A bolt-action rifle from the Great War. Precise and powerful.',
+    ch: ')', fg: '#556B2F',
+    damage: [7, 12],    // solid damage, bolt-action rifle
+    range: 13,          // longest range of all firearms
+    magSize: 5,         // magazine-fed bolt-action
+    reloadTurns: 2,     // changing magazine
+    reloadStyle: 'magazine',  // swap entire mag at once
+    ammoType: '.30-06',
+    accuracy: 0.68,     // reliable accuracy at range
+    sound: 'The rifle CRACKS loudly.',
   },
 };
 
@@ -1126,7 +1150,7 @@ function spawnItems() {
   // Spawn firearm with small chance on each level
   if (Math.random() < 0.15) {
     const room = pick(state.rooms.slice(1));
-    const firearmKey = pick(['m1911', 'revolver38', 'shotgun']);
+    const firearmKey = pick(['m1911', 'revolver38', 'shotgun', 'enfield1917']);
     const firearmDef = FIREARM_DEFS[ITEM_DEFS[firearmKey].firearmId];
     state.items.push({
       ...ITEM_DEFS[firearmKey],
@@ -1153,7 +1177,7 @@ function spawnAmmo() {
   const scarcityRatio = 1 - (totalAmmo / (f.magSize * 3));
   const baseChance = 0.25 + Math.max(0, scarcityRatio) * 0.65;
 
-  const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g' }[ammoType];
+  const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g', '.30-06': 'ammo_30_06' }[ammoType];
   if (!ammoItemKey) return;
 
   const piles = totalAmmo === 0 ? rng(2, 3) : (Math.random() < baseChance ? rng(1, 2) : 0);
