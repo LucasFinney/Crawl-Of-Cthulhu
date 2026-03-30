@@ -117,7 +117,7 @@ body {
   <div id="stats-bar"></div>
   <div id="display"></div>
   <div id="message-log"></div>
-  <div id="help-bar">[←↑↓→/WASD] Move · [Tab] Run · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [T] Torch · [I] Inventory · [[ / ]] Turn · [>] Descend · [?] Help</div>
+  <div id="help-bar">[←↑↓→/WASD] Move · [Tab] Run · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [T] Torch · [I] Inventory · [[ / ]] Turn · [>] Descend · [M] Mute · [?] Help</div>
 </div>
 
 <script>
@@ -1328,6 +1328,7 @@ function describeTile(x, y) {
 
 function render() {
   computeFOV();
+  updateAmbientAudio();
 
   const display = document.getElementById('display');
   let html = '';
@@ -3186,6 +3187,7 @@ let dreamComment = '';
 
 function enterDreamlands() {
   dreamPhase = 'intro';
+  updateAmbientAudio(); // shift to dreamlands tones
   dreamGreeting = pick(CAT_GREETINGS);
 
   // Pick a contextual comment
@@ -3306,6 +3308,7 @@ function dreamBuy() {
 
 function leaveDreamlands() {
   dreamPhase = '';
+  updateAmbientAudio(); // shift back to dungeon tones
   hideOverlay();
   addMsg(`You descend to depth ${state.dlevel}. The air grows heavier...`, 'msg-lore');
   if (state.dlevel === 3) addMsg('A distant piping echoes through the tunnels...', 'msg-sanity');
@@ -3324,6 +3327,9 @@ let showingProfSelect = false;
 let devMode = false;
 
 document.addEventListener('keydown', (e) => {
+  // Initialize audio on first interaction (browsers require user gesture)
+  if (!audio.initialized) initAudio();
+
   // Title screen
   if (!gameStarted) {
     // Profession selection screen
@@ -3711,6 +3717,12 @@ document.addEventListener('keydown', (e) => {
       render();
       break;
     }
+    case 'm': case 'M': { // Toggle audio mute
+      const muted = toggleMuteAudio();
+      addMsg(muted ? 'Audio muted.' : 'Audio unmuted.', 'msg-info');
+      render();
+      break;
+    }
     case ']': // Rotate clockwise
       state.player.facing = rotateFacing(state.player.facing, 1);
       render();
@@ -3731,6 +3743,254 @@ document.addEventListener('keydown', (e) => {
     deathScreen();
   }
 });
+
+// ═══════════════════════════════════════════════════════════════
+//  AMBIENT AUDIO (Web Audio API — procedural, no external files)
+// ═══════════════════════════════════════════════════════════════
+const audio = {
+  ctx: null,           // AudioContext, created on first user interaction
+  master: null,        // master gain node
+  droneGain: null,     // gain for the drone layer
+  heartGain: null,     // gain for the heartbeat layer
+  dreamGain: null,     // gain for the dreamlands layer
+
+  // Drone oscillators
+  drones: [],          // array of { osc, gain } — base tonal layer
+  lfo: null,           // low-frequency oscillator for slow pulsing
+
+  // Heartbeat
+  heartInterval: null, // setInterval ID for heartbeat ticks
+  heartOsc: null,
+
+  // Dreamlands
+  dreamDrones: [],
+
+  // State tracking for smooth transitions
+  targetDroneVol: 0,
+  targetHeartVol: 0,
+  targetDreamVol: 0,
+  initialized: false,
+  muted: false,
+};
+
+function initAudio() {
+  if (audio.initialized) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audio.ctx = new AC();
+  } catch(e) { return; }
+
+  const ctx = audio.ctx;
+
+  // ── Master output chain ──
+  // Drone → droneGain → master → compressor → destination
+  audio.master = ctx.createGain();
+  audio.master.gain.value = 0.25; // overall volume
+
+  const compressor = ctx.createDynamicsCompressor();
+  compressor.threshold.value = -24;
+  compressor.ratio.value = 4;
+  audio.master.connect(compressor);
+  compressor.connect(ctx.destination);
+
+  // ── Drone layer ──
+  // Three detuned oscillators create a thick, dark ambient pad
+  audio.droneGain = ctx.createGain();
+  audio.droneGain.gain.value = 0;
+  audio.droneGain.connect(audio.master);
+
+  // Base frequencies: a low cluster around C2 (~65Hz) and its fifth (~98Hz)
+  const droneFreqs = [55, 55.3, 82.4]; // A1, A1 slightly sharp, E2
+  const droneTypes = ['sine', 'triangle', 'sine'];
+
+  for (let i = 0; i < droneFreqs.length; i++) {
+    const osc = ctx.createOscillator();
+    osc.type = droneTypes[i];
+    osc.frequency.value = droneFreqs[i];
+
+    const gain = ctx.createGain();
+    gain.gain.value = i === 2 ? 0.3 : 0.5; // fifth is quieter
+
+    osc.connect(gain);
+    gain.connect(audio.droneGain);
+    osc.start();
+    audio.drones.push({ osc, gain, baseFreq: droneFreqs[i] });
+  }
+
+  // LFO: slow volume pulsing on the drone (0.05Hz = 20-second cycle)
+  audio.lfo = ctx.createOscillator();
+  audio.lfo.type = 'sine';
+  audio.lfo.frequency.value = 0.05;
+  const lfoGain = ctx.createGain();
+  lfoGain.gain.value = 0.15; // subtle pulsing
+  audio.lfo.connect(lfoGain);
+  lfoGain.connect(audio.droneGain.gain);
+  audio.lfo.start();
+
+  // ── Heartbeat layer ──
+  audio.heartGain = ctx.createGain();
+  audio.heartGain.gain.value = 0;
+  audio.heartGain.connect(audio.master);
+
+  function heartbeatPulse() {
+    if (!audio.ctx || audio.ctx.state === 'closed') return;
+    const now = audio.ctx.currentTime;
+    // Double-pulse like a real heartbeat: lub-dub
+    for (let i = 0; i < 2; i++) {
+      const osc = audio.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 40; // deep thud
+      const env = audio.ctx.createGain();
+      env.gain.value = 0;
+      // Attack and decay envelope
+      const onset = now + i * 0.15; // second beat 150ms after first
+      env.gain.setValueAtTime(0, onset);
+      env.gain.linearRampToValueAtTime(0.6, onset + 0.03);
+      env.gain.exponentialRampToValueAtTime(0.001, onset + 0.2);
+      osc.connect(env);
+      env.connect(audio.heartGain);
+      osc.start(onset);
+      osc.stop(onset + 0.25);
+    }
+  }
+
+  // Heartbeat interval — adjusts dynamically via updateAmbientAudio
+  audio.heartInterval = setInterval(heartbeatPulse, 1000);
+
+  // ── Dreamlands layer ──
+  // Warm, ethereal tones — major-ish harmony, higher register
+  audio.dreamGain = ctx.createGain();
+  audio.dreamGain.gain.value = 0;
+  audio.dreamGain.connect(audio.master);
+
+  const dreamFreqs = [261.6, 329.6, 392.0]; // C4, E4, G4 — major chord
+  const dreamTypes = ['sine', 'sine', 'triangle'];
+
+  for (let i = 0; i < dreamFreqs.length; i++) {
+    const osc = ctx.createOscillator();
+    osc.type = dreamTypes[i];
+    osc.frequency.value = dreamFreqs[i];
+
+    const gain = ctx.createGain();
+    gain.gain.value = 0.2;
+
+    osc.connect(gain);
+    gain.connect(audio.dreamGain);
+    osc.start();
+    audio.dreamDrones.push({ osc, gain, baseFreq: dreamFreqs[i] });
+  }
+
+  audio.initialized = true;
+}
+
+function updateAmbientAudio() {
+  if (!audio.initialized || !audio.ctx || audio.muted) return;
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+  const rampTime = 2.0; // smooth 2-second transitions
+
+  // ── Determine game state ──
+  const inDreamlands = dreamPhase !== '';
+  const inGame = gameStarted && state && !state.gameOver;
+  const p = inGame ? state.player : null;
+
+  // ── Dreamlands: warm tones, no drone ──
+  if (inDreamlands) {
+    audio.droneGain.gain.linearRampToValueAtTime(0, now + rampTime);
+    audio.heartGain.gain.linearRampToValueAtTime(0, now + rampTime);
+    audio.dreamGain.gain.linearRampToValueAtTime(0.5, now + rampTime);
+    return;
+  }
+
+  // ── Dreamlands off ──
+  audio.dreamGain.gain.linearRampToValueAtTime(0, now + rampTime);
+
+  if (!inGame || !p) {
+    // Title screen or game over: very quiet drone
+    audio.droneGain.gain.linearRampToValueAtTime(0.15, now + rampTime);
+    audio.heartGain.gain.linearRampToValueAtTime(0, now + rampTime);
+    return;
+  }
+
+  // ── Dungeon drone ──
+  // Base volume increases with depth
+  const depthFactor = Math.min(1, state.dlevel / 9);
+  // Sanity loss makes it louder and more dissonant
+  const sanPct = p.sanity / p.maxSanity;
+  const insanityFactor = 1 - sanPct; // 0 = sane, 1 = insane
+  // Darkness makes it louder
+  const darkFactor = (!p.torchLit || p.torch <= 0) ? 0.3 : 0;
+
+  const droneVol = Math.min(0.8, 0.2 + depthFactor * 0.2 + insanityFactor * 0.2 + darkFactor);
+  audio.droneGain.gain.linearRampToValueAtTime(droneVol, now + rampTime);
+
+  // ── Pitch modulation: detune drones as sanity drops ──
+  // At full sanity: clean intervals. At low sanity: increasingly dissonant
+  const detuneCents = insanityFactor * 50; // up to 50 cents of detuning
+  for (let i = 0; i < audio.drones.length; i++) {
+    const d = audio.drones[i];
+    // Each oscillator detunes in a different direction
+    const direction = i === 0 ? 1 : i === 1 ? -1 : 0.5;
+    d.osc.detune.linearRampToValueAtTime(detuneCents * direction, now + rampTime);
+  }
+
+  // ── Drone pitch drops with depth ──
+  // Deeper floors = lower fundamental
+  const pitchDrop = 1 - depthFactor * 0.15; // up to 15% lower at floor 9
+  for (const d of audio.drones) {
+    d.osc.frequency.linearRampToValueAtTime(d.baseFreq * pitchDrop, now + rampTime);
+  }
+
+  // ── LFO speed increases with insanity ──
+  // Calm: 20-second cycle. Maddened: 4-second cycle
+  const lfoRate = 0.05 + insanityFactor * 0.2;
+  audio.lfo.frequency.linearRampToValueAtTime(lfoRate, now + rampTime);
+
+  // ── Heartbeat: audible when HP is low ──
+  const hpPct = p.hp / p.maxHp;
+  let heartVol = 0;
+  if (hpPct <= 0.5) {
+    heartVol = (1 - hpPct / 0.5) * 0.6; // louder as HP drops below 50%
+  }
+  // Also audible during event chains (building tension)
+  if (state.activeEventChain) heartVol = Math.max(heartVol, 0.3);
+  audio.heartGain.gain.linearRampToValueAtTime(heartVol, now + rampTime);
+
+  // Heartbeat rate: faster at lower HP
+  const heartRate = hpPct <= 0.5 ? Math.max(400, 1000 * hpPct) : 1000;
+  if (audio.heartInterval) clearInterval(audio.heartInterval);
+  audio.heartInterval = setInterval(() => {
+    if (!audio.ctx || audio.ctx.state === 'closed' || audio.muted) return;
+    const t = audio.ctx.currentTime;
+    for (let i = 0; i < 2; i++) {
+      const osc = audio.ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 40;
+      const env = audio.ctx.createGain();
+      env.gain.value = 0;
+      const onset = t + i * 0.15;
+      env.gain.setValueAtTime(0, onset);
+      env.gain.linearRampToValueAtTime(0.6, onset + 0.03);
+      env.gain.exponentialRampToValueAtTime(0.001, onset + 0.2);
+      osc.connect(env);
+      env.connect(audio.heartGain);
+      osc.start(onset);
+      osc.stop(onset + 0.25);
+    }
+  }, heartRate);
+}
+
+function toggleMuteAudio() {
+  audio.muted = !audio.muted;
+  if (audio.initialized && audio.ctx) {
+    const now = audio.ctx.currentTime;
+    audio.master.gain.linearRampToValueAtTime(audio.muted ? 0 : 0.25, now + 0.3);
+  }
+  return audio.muted;
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  INIT
