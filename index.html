@@ -1603,9 +1603,13 @@ function meleeAttack(attacker, defender, attackerName, defenderName) {
   if (dmg > 0) {
     const hitVerb = attackerName === 'You' ? 'hit' : 'hits';
     addMsg(`${attackerName} ${hitVerb} ${defenderName} for ${dmg} damage!`, 'msg-danger');
+    // Sound: player attacking vs being attacked
+    if (attackerName === 'You') sfxMeleeHit();
+    else sfxPlayerHurt();
   } else {
     const atkVerb = attackerName === 'You' ? 'attack' : 'attacks';
     addMsg(`${attackerName} ${atkVerb} ${defenderName} but deals no damage.`, 'msg-warning');
+    sfxMeleeMiss();
   }
 
   return dmg;
@@ -1889,6 +1893,7 @@ function fireAtTarget(tx, ty) {
   // Expend ammo
   f.ammo--;
   addMsg(f.sound, 'msg-danger');
+  sfxGunfire();
 
   // Find monster at target
   const monster = state.monsters.find(m => m.x === tx && m.y === ty && m.hp > 0);
@@ -2497,6 +2502,7 @@ function tryMove(dx, dy) {
       && state.map[ny * WIDTH + nx] === TILE.DOOR_CLOSED) {
     state.map[ny * WIDTH + nx] = TILE.DOOR_OPEN;
     addMsg('You open the door.', 'msg-info');
+    sfxDoorOpen();
     p.running = false; // Stop running when opening doors
     endPlayerTurn();
     return;
@@ -3981,6 +3987,176 @@ function updateAmbientAudio() {
       osc.stop(onset + 0.25);
     }
   }, heartRate);
+}
+
+// ── Sound Effects ──
+// Short synthesized sounds for combat feedback
+
+function sfxMeleeHit() {
+  // Player hits enemy: sharp mid-frequency impact with quick decay
+  if (!audio.initialized || audio.muted) return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+
+  // Impact thud
+  const osc = ctx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(200, now);
+  osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.4, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+  osc.connect(gain);
+  gain.connect(audio.master);
+  osc.start(now);
+  osc.stop(now + 0.15);
+}
+
+function sfxMeleeMiss() {
+  // Melee swing whiff: short noise swoosh
+  if (!audio.initialized || audio.muted) return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+
+  const bufferSize = ctx.sampleRate * 0.08;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+  }
+
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  // Bandpass to make it sound like a swoosh
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 2000;
+  filter.Q.value = 1;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.15, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(audio.master);
+  noise.start(now);
+}
+
+function sfxPlayerHurt() {
+  // Player takes damage: low thud + brief high noise (pain)
+  if (!audio.initialized || audio.muted) return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+
+  // Low impact
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(100, now);
+  osc.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.5, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+
+  osc.connect(gain);
+  gain.connect(audio.master);
+  osc.start(now);
+  osc.stop(now + 0.25);
+
+  // Brief noise burst
+  const bufferSize = ctx.sampleRate * 0.06;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.2, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+  noise.connect(nGain);
+  nGain.connect(audio.master);
+  noise.start(now);
+}
+
+function sfxGunfire() {
+  // Gunshot: noise burst + low frequency punch
+  if (!audio.initialized || audio.muted) return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+
+  // Noise burst (the "crack")
+  const bufferSize = ctx.sampleRate * 0.15;
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3);
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+
+  // Highpass to make it sharp
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'highpass';
+  filter.frequency.value = 800;
+
+  const nGain = ctx.createGain();
+  nGain.gain.setValueAtTime(0.5, now);
+  nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+  noise.connect(filter);
+  filter.connect(nGain);
+  nGain.connect(audio.master);
+  noise.start(now);
+
+  // Low-end punch (the "boom")
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(150, now);
+  osc.frequency.exponentialRampToValueAtTime(30, now + 0.1);
+
+  const oGain = ctx.createGain();
+  oGain.gain.setValueAtTime(0.6, now);
+  oGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+  osc.connect(oGain);
+  oGain.connect(audio.master);
+  osc.start(now);
+  osc.stop(now + 0.2);
+}
+
+function sfxDoorOpen() {
+  // Door creak: filtered noise with rising pitch
+  if (!audio.initialized || audio.muted) return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(80, now);
+  osc.frequency.linearRampToValueAtTime(200, now + 0.15);
+  osc.frequency.linearRampToValueAtTime(120, now + 0.25);
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = 600;
+  filter.Q.value = 5;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.12, now);
+  gain.gain.linearRampToValueAtTime(0.08, now + 0.15);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+
+  osc.connect(filter);
+  filter.connect(gain);
+  gain.connect(audio.master);
+  osc.start(now);
+  osc.stop(now + 0.35);
 }
 
 function toggleMuteAudio() {
