@@ -3759,6 +3759,7 @@ const audio = {
   droneGain: null,     // gain for the drone layer
   heartGain: null,     // gain for the heartbeat layer
   dreamGain: null,     // gain for the dreamlands layer
+  seqGain: null,       // gain for the sequencer layer
 
   // Drone oscillators
   drones: [],          // array of { osc, gain } — base tonal layer
@@ -3770,6 +3771,17 @@ const audio = {
 
   // Dreamlands
   dreamDrones: [],
+
+  // Sequencer
+  seq: {
+    playing: false,
+    currentTrack: null,  // name of active track
+    bpm: 45,
+    stepIndex: 0,        // current position in the pattern
+    nextStepTime: 0,     // AudioContext time of next scheduled step
+    scheduleAhead: 0.2,  // schedule notes this far ahead (seconds)
+    timerID: null,       // setInterval for the scheduler
+  },
 
   // State tracking for smooth transitions
   targetDroneVol: 0,
@@ -3887,7 +3899,276 @@ function initAudio() {
     audio.dreamDrones.push({ osc, gain, baseFreq: dreamFreqs[i] });
   }
 
+  // ── Sequencer output ──
+  audio.seqGain = ctx.createGain();
+  audio.seqGain.gain.value = 0;
+  audio.seqGain.connect(audio.master);
+
   audio.initialized = true;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  MUSIC SEQUENCER
+// ═══════════════════════════════════════════════════════════════
+
+// Note frequency lookup (scientific pitch notation)
+const NOTE_FREQ = {
+  'C2': 65.41, 'D2': 73.42, 'Eb2': 77.78, 'E2': 82.41, 'F2': 87.31,
+  'G2': 98.00, 'Ab2': 103.83, 'A2': 110.00, 'Bb2': 116.54, 'B2': 123.47,
+  'C3': 130.81, 'D3': 146.83, 'Eb3': 155.56, 'E3': 164.81, 'F3': 174.61,
+  'G3': 196.00, 'Ab3': 207.65, 'A3': 220.00, 'Bb3': 233.08, 'B3': 246.94,
+  'C4': 261.63, 'D4': 293.66, 'Eb4': 311.13, 'E4': 329.63, 'F4': 349.23,
+  'G4': 392.00, 'Ab4': 415.30, 'A4': 440.00, 'Bb4': 466.16, 'B4': 493.88,
+  'C5': 523.25, 'D5': 587.33, 'Eb5': 622.25, 'E5': 659.25,
+};
+
+// Track definitions: each track has a BPM, and multiple layers
+// Each layer has: type (bass/melody/perc), waveform, volume, and a pattern
+// Pattern entries: note name (string), null (rest), or 'x' (percussion hit)
+// Each step = one beat at the track's BPM
+
+const MUSIC_TRACKS = {
+  // ── Main dungeon theme: slow, sparse, Phrygian mode (dark) ──
+  dungeon: {
+    bpm: 40,
+    layers: [
+      { // Bass: low, plodding root notes with long sustain
+        type: 'bass', wave: 'triangle', vol: 0.35, octShift: 0,
+        pattern: [
+          'A2', null, null, null,  'E2', null, null, null,
+          'F2', null, null, null,  'E2', null, null, null,
+          'A2', null, null, null,  'G2', null, null, null,
+          'F2', null, null, 'E2',  'D2', null, null, null,
+        ],
+        noteLen: 3.0, // long sustained bass notes (in beats)
+      },
+      { // Melody: sparse, high, eerie — intervals of minor 2nds and tritones
+        type: 'melody', wave: 'sine', vol: 0.12, octShift: 0,
+        pattern: [
+          null, null, 'E4', null,  null, null, null, null,
+          null, 'F4', null, null,  null, null, 'Bb3', null,
+          null, null, null, 'A3',  null, null, null, null,
+          null, null, 'Eb4', null, null, null, null, null,
+        ],
+        noteLen: 1.8,
+      },
+      { // Percussion: very occasional low thuds
+        type: 'perc', wave: 'sine', vol: 0.2, octShift: 0,
+        pattern: [
+          'x', null, null, null,  null, null, null, null,
+          null, null, null, null,  'x', null, null, null,
+          null, null, null, null,  null, null, null, null,
+          'x', null, null, null,  null, null, null, null,
+        ],
+        noteLen: 0.1,
+      },
+    ],
+  },
+
+  // ── Deep dungeon: slower, lower, more dissonant (floors 5+) ──
+  deep: {
+    bpm: 32,
+    layers: [
+      { type: 'bass', wave: 'triangle', vol: 0.4, octShift: 0,
+        pattern: [
+          'D2', null, null, null, null, null,  'Ab2', null, null, null, null, null,
+          'E2', null, null, null, null, null,  'Bb2', null, null, null, null, null,
+          'D2', null, null, null, null, null,  'C2', null, null, null, null, null,
+          'Eb2', null, null, null, 'D2', null, null, null, null, null, null, null,
+        ],
+        noteLen: 4.0,
+      },
+      { type: 'melody', wave: 'sine', vol: 0.1, octShift: 0,
+        pattern: [
+          null, null, null, 'Ab4', null, null,  null, null, null, null, null, null,
+          null, null, null, null, null, 'D4',   null, null, null, null, null, null,
+          null, null, null, null, null, null,    null, null, 'Eb4', null, null, null,
+          null, null, null, null, null, null,    null, null, null, null, 'Ab3', null,
+        ],
+        noteLen: 2.5,
+      },
+      { type: 'perc', wave: 'sine', vol: 0.25, octShift: 0,
+        pattern: [
+          'x', null, null, null, null, null,  null, null, null, null, null, null,
+          null, null, null, null, null, null,  'x', null, null, null, null, null,
+          null, null, null, null, null, null,  null, null, null, null, null, null,
+          null, null, null, 'x', null, null,  null, null, null, null, null, null,
+        ],
+        noteLen: 0.1,
+      },
+    ],
+  },
+
+  // ── Dreamlands: gentle, warm, pentatonic ──
+  dream: {
+    bpm: 55,
+    layers: [
+      { type: 'bass', wave: 'sine', vol: 0.2, octShift: 0,
+        pattern: [
+          'C3', null, null, null,  'G3', null, null, null,
+          'A3', null, null, null,  'E3', null, null, null,
+          'F3', null, null, null,  'C3', null, null, null,
+          'G3', null, null, null,  'E3', null, null, null,
+        ],
+        noteLen: 2.5,
+      },
+      { type: 'melody', wave: 'sine', vol: 0.12, octShift: 0,
+        pattern: [
+          null, null, 'E5', null,  null, 'G4', null, null,
+          null, null, null, 'A4',  null, null, null, null,
+          'C5', null, null, null,  null, null, 'G4', null,
+          null, null, null, null,  null, 'E4', null, null,
+        ],
+        noteLen: 1.2,
+      },
+    ],
+  },
+
+  // ── Title screen: very sparse, mysterious ──
+  title: {
+    bpm: 30,
+    layers: [
+      { type: 'bass', wave: 'triangle', vol: 0.25, octShift: 0,
+        pattern: [
+          'A2', null, null, null, null, null, null, null,
+          null, null, null, null, 'E2', null, null, null,
+          null, null, null, null, null, null, null, null,
+          'F2', null, null, null, null, null, null, null,
+        ],
+        noteLen: 5.0,
+      },
+      { type: 'melody', wave: 'sine', vol: 0.08, octShift: 0,
+        pattern: [
+          null, null, null, null, null, null, 'E4', null,
+          null, null, null, null, null, null, null, null,
+          null, null, null, null, 'F4', null, null, null,
+          null, null, null, null, null, null, null, 'E4',
+        ],
+        noteLen: 2.0,
+      },
+    ],
+  },
+};
+
+// Schedule a single note on a layer
+function scheduleNote(layer, time, detuneCents) {
+  if (!audio.ctx) return;
+  const ctx = audio.ctx;
+  const beatDur = 60 / audio.seq.bpm;
+  const dur = layer.noteLen * beatDur;
+
+  if (layer.type === 'perc') {
+    // Percussion: low-frequency thud with fast decay
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(55, time);
+    osc.frequency.exponentialRampToValueAtTime(25, time + 0.15);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(layer.vol, time);
+    env.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
+
+    osc.connect(env);
+    env.connect(audio.seqGain);
+    osc.start(time);
+    osc.stop(time + 0.35);
+    return;
+  }
+
+  // Melodic note (bass or melody)
+  const noteName = layer._currentNote;
+  const freq = NOTE_FREQ[noteName];
+  if (!freq) return;
+
+  const osc = ctx.createOscillator();
+  osc.type = layer.wave;
+  osc.frequency.value = freq;
+  if (detuneCents) osc.detune.value = detuneCents;
+
+  const env = ctx.createGain();
+  // ADSR-ish envelope: quick attack, sustain, slow release
+  const attack = 0.05;
+  const release = Math.min(dur * 0.4, 1.0);
+  env.gain.setValueAtTime(0, time);
+  env.gain.linearRampToValueAtTime(layer.vol, time + attack);
+  env.gain.setValueAtTime(layer.vol, time + dur - release);
+  env.gain.exponentialRampToValueAtTime(0.001, time + dur);
+
+  osc.connect(env);
+  env.connect(audio.seqGain);
+  osc.start(time);
+  osc.stop(time + dur + 0.01);
+}
+
+// The scheduler: runs on a fast timer, scheduling notes just ahead of playback
+function seqScheduler() {
+  if (!audio.seq.playing || !audio.ctx) return;
+
+  const seq = audio.seq;
+  const track = MUSIC_TRACKS[seq.currentTrack];
+  if (!track) return;
+
+  const beatDur = 60 / seq.bpm;
+
+  // Calculate insanity detune for melodic layers
+  let detuneCents = 0;
+  if (gameStarted && state && state.player) {
+    const insanity = 1 - (state.player.sanity / state.player.maxSanity);
+    detuneCents = insanity * 30; // up to 30 cents detune at zero SAN
+  }
+
+  // Schedule notes until we're far enough ahead
+  while (seq.nextStepTime < audio.ctx.currentTime + seq.scheduleAhead) {
+    const patLen = track.layers[0].pattern.length;
+
+    for (const layer of track.layers) {
+      const step = layer.pattern[seq.stepIndex % layer.pattern.length];
+      if (step === 'x') {
+        // Percussion hit
+        layer._currentNote = null;
+        scheduleNote(layer, seq.nextStepTime, 0);
+      } else if (step) {
+        // Melodic note
+        layer._currentNote = step;
+        const det = layer.type === 'melody' ? detuneCents : detuneCents * 0.5;
+        scheduleNote(layer, seq.nextStepTime, det);
+      }
+      // null = rest, do nothing
+    }
+
+    seq.stepIndex = (seq.stepIndex + 1) % patLen;
+    seq.nextStepTime += beatDur;
+  }
+}
+
+function startSequencer(trackName) {
+  if (!audio.initialized) return;
+  const track = MUSIC_TRACKS[trackName];
+  if (!track) return;
+
+  const seq = audio.seq;
+
+  // If already playing this track, don't restart
+  if (seq.playing && seq.currentTrack === trackName) return;
+
+  // Stop current sequencer
+  if (seq.timerID) clearInterval(seq.timerID);
+
+  seq.currentTrack = trackName;
+  seq.bpm = track.bpm;
+  seq.stepIndex = 0;
+  seq.nextStepTime = audio.ctx.currentTime + 0.1; // start slightly in the future
+  seq.playing = true;
+
+  // Run scheduler every 50ms — frequent enough to stay ahead of playback
+  seq.timerID = setInterval(seqScheduler, 50);
+}
+
+function stopSequencer() {
+  const seq = audio.seq;
+  if (seq.timerID) clearInterval(seq.timerID);
+  seq.playing = false;
+  seq.currentTrack = null;
 }
 
 function updateAmbientAudio() {
@@ -3903,11 +4184,13 @@ function updateAmbientAudio() {
   const inGame = gameStarted && state && !state.gameOver;
   const p = inGame ? state.player : null;
 
-  // ── Dreamlands: warm tones, no drone ──
+  // ── Dreamlands: warm tones, no drone, dream music ──
   if (inDreamlands) {
     audio.droneGain.gain.linearRampToValueAtTime(0, now + rampTime);
     audio.heartGain.gain.linearRampToValueAtTime(0, now + rampTime);
     audio.dreamGain.gain.linearRampToValueAtTime(0.5, now + rampTime);
+    audio.seqGain.gain.linearRampToValueAtTime(0.6, now + rampTime);
+    startSequencer('dream');
     return;
   }
 
@@ -3915,9 +4198,11 @@ function updateAmbientAudio() {
   audio.dreamGain.gain.linearRampToValueAtTime(0, now + rampTime);
 
   if (!inGame || !p) {
-    // Title screen or game over: very quiet drone
+    // Title screen or game over: very quiet drone + title music
     audio.droneGain.gain.linearRampToValueAtTime(0.15, now + rampTime);
     audio.heartGain.gain.linearRampToValueAtTime(0, now + rampTime);
+    audio.seqGain.gain.linearRampToValueAtTime(0.5, now + rampTime);
+    startSequencer('title');
     return;
   }
 
@@ -3987,6 +4272,12 @@ function updateAmbientAudio() {
       osc.stop(onset + 0.25);
     }
   }, heartRate);
+
+  // ── Sequencer: pick track based on depth ──
+  const seqTrack = state.dlevel >= 5 ? 'deep' : 'dungeon';
+  const seqVol = Math.min(0.7, 0.3 + depthFactor * 0.2 + insanityFactor * 0.1);
+  audio.seqGain.gain.linearRampToValueAtTime(seqVol, now + rampTime);
+  startSequencer(seqTrack);
 }
 
 // ── Sound Effects ──
