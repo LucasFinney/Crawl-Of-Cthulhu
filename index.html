@@ -349,7 +349,7 @@ const FIREARM_DEFS = {
     id: 'm1911',
     name: 'M1911 pistol',
     desc: 'A .45 ACP semi-automatic. Reliable stopping power.',
-    ch: ')', fg: '#aaa',
+    ch: ']', fg: '#aaa',
     damage: [5, 9],     // [min, max]
     range: 8,
     magSize: 7,
@@ -363,7 +363,7 @@ const FIREARM_DEFS = {
     id: 'revolver38',
     name: '.38 revolver',
     desc: 'A snub-nosed Colt Detective Special. Quick to draw.',
-    ch: ')', fg: '#8B6914',
+    ch: ']', fg: '#8B6914',
     damage: [4, 7],
     range: 6,
     magSize: 6,
@@ -377,7 +377,7 @@ const FIREARM_DEFS = {
     id: 'shotgun',
     name: 'coach shotgun',
     desc: 'A sawn-off double-barrel. Devastating up close.',
-    ch: ')', fg: '#7f8c8d',
+    ch: ']', fg: '#7f8c8d',
     damage: [10, 18],   // huge damage, but short range and 2 shots
     range: 4,
     magSize: 2,
@@ -391,7 +391,7 @@ const FIREARM_DEFS = {
     id: 'enfield1917',
     name: 'M1917 Enfield',
     desc: 'A bolt-action rifle from the Great War. Precise and powerful.',
-    ch: ')', fg: '#556B2F',
+    ch: ']', fg: '#556B2F',
     damage: [7, 12],    // solid damage, bolt-action rifle
     range: 13,          // longest range of all firearms
     magSize: 5,         // magazine-fed bolt-action
@@ -1148,7 +1148,7 @@ function spawnItems() {
   }
 
   // Spawn firearm with small chance on each level
-  if (Math.random() < 0.15) {
+  if (Math.random() < 0.99 - 0.85 * Math.exp(-state.dlevel / 3)) { // ~15% on level 1, rising to ~50% by level 5
     const room = pick(state.rooms.slice(1));
     const firearmKey = pick(['m1911', 'revolver38', 'shotgun', 'enfield1917']);
     const firearmDef = FIREARM_DEFS[ITEM_DEFS[firearmKey].firearmId];
@@ -1160,6 +1160,7 @@ function spawnItems() {
     });
   }
 
+
   // Spawn ammo — adaptive scarcity based on player's reserves
   spawnAmmo();
 }
@@ -1169,34 +1170,53 @@ function spawnAmmo() {
   const f = p.firearm;
   if (!f) return;
 
-  const ammoType = f.ammoType;
-  const reserve = countReserveAmmo(ammoType);
-  const totalAmmo = reserve + f.ammo;
+  // Define ammo type to item key mapping
+  const ammoTypeMap = { 
+    '.45 ACP': 'ammo_45', 
+    '.38 Special': 'ammo_38', 
+    '12 gauge': 'ammo_12g', 
+    '.30-06': 'ammo_30_06' 
+  };
 
-  // Adaptive scarcity: less ammo = more spawns
-  const scarcityRatio = 1 - (totalAmmo / (f.magSize * 3));
-  const baseChance = 0.25 + Math.max(0, scarcityRatio) * 0.65;
+  // Spawn ammo for all firearm types
+  for (const [ammoType, ammoItemKey] of Object.entries(ammoTypeMap)) {
+    const isCarriedWeapon = ammoType === f.ammoType;
+    const firearmDef = Object.values(FIREARM_DEFS).find(fd => fd.ammoType === ammoType);
+    if (!firearmDef) continue;
 
-  const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g', '.30-06': 'ammo_30_06' }[ammoType];
-  if (!ammoItemKey) return;
+    let chance, pileCount;
 
-  const piles = totalAmmo === 0 ? rng(2, 3) : (Math.random() < baseChance ? rng(1, 2) : 0);
-
-  for (let i = 0; i < piles; i++) {
-    const room = pick(state.rooms.slice(1));
-    let amount;
-    if (ammoType === '12 gauge') {
-      amount = rng(2, 4); // shotgun shells, up to 6 per stack
+    if (isCarriedWeapon) {
+      // Adaptive scarcity: less ammo = more spawns (original logic)
+      const reserve = countReserveAmmo(ammoType);
+      const totalAmmo = reserve + f.ammo;
+      const scarcityRatio = 1 - (totalAmmo / (f.magSize * 3));
+      const baseChance = 0.25 + Math.max(0, scarcityRatio) * 0.65;
+      chance = totalAmmo === 0 ? 1 : baseChance;
+      pileCount = totalAmmo === 0 ? rng(2, 3) : (Math.random() < baseChance ? rng(1, 2) : 0);
     } else {
-      // Pistol: each pile = 1 magazine worth of rounds
-      amount = f.magSize;
+      // Lower chance for weapons not carried (10% normally, 20% if no reserves)
+      const reserve = countReserveAmmo(ammoType);
+      chance = reserve === 0 ? 0.2 : 0.1;
+      pileCount = Math.random() < chance ? 1 : 0;
     }
-    state.items.push({
-      ...ITEM_DEFS[ammoItemKey],
-      amount,
-      x: rng(room.x + 1, room.x + room.w - 2),
-      y: rng(room.y + 1, room.y + room.h - 2),
-    });
+
+    for (let i = 0; i < pileCount; i++) {
+      const room = pick(state.rooms.slice(1));
+      let amount;
+      if (ammoType === '12 gauge') {
+        amount = rng(2, 4); // shotgun shells, up to 6 per stack
+      } else {
+        // Rifle and pistol: each pile = 1 magazine worth of rounds
+        amount = firearmDef.magSize;
+      }
+      state.items.push({
+        ...ITEM_DEFS[ammoItemKey],
+        amount,
+        x: rng(room.x + 1, room.x + room.w - 2),
+        y: rng(room.y + 1, room.y + room.h - 2),
+      });
+    }
   }
 }
 
