@@ -410,7 +410,7 @@ const PROFESSIONS = {
     name: 'Soldier',
     desc: '"The war ended, but the nightmares didn\'t."',
     hp: 15, maxHp: 15,
-    sanity: 80, maxSanity: 80,
+    sanity: 40, maxSanity: 80,
     stamina: 12, maxStamina: 12,
     baseAtk: 3, baseDef: 1,
     firearm: 'm1911',
@@ -427,10 +427,10 @@ const PROFESSIONS = {
     name: 'Doctor',
     desc: '"First, do no harm. But down here, harm finds you."',
     hp: 6, maxHp: 6,
-    sanity: 95, maxSanity: 95,
+    sanity: 50, maxSanity: 95,
     stamina: 8, maxStamina: 8,
     baseAtk: 1, baseDef: 0,
-    firearm: 'revolver38',
+    firearm: 'shotgun',
     extraAmmo: 0,
     melee: null,
     items: ['medicalBag', 'medicalBag', 'morphine'],
@@ -444,7 +444,7 @@ const PROFESSIONS = {
     name: 'Detective',
     desc: '"The case file said \'missing persons.\' It lied."',
     hp: 10, maxHp: 10,
-    sanity: 90, maxSanity: 90,
+    sanity: 45, maxSanity: 90,
     stamina: 10, maxStamina: 10,
     baseAtk: 2, baseDef: 0,
     firearm: 'revolver38',
@@ -1748,8 +1748,8 @@ function monsterKillSanRecovery(monster) {
 function monsterAttackPlayer(monster) {
   const mName = monsterDisplayName(monster);
 
-  // Ambush bonus: first strike deals double damage
-  if (monster.behavior === 'ambush' && monster.ambushTriggered && !monster.ambushStruck) {
+  // Ambush bonus: first strike deals double damage (only if encountered naturally, not if already engaged)
+  if (monster.behavior === 'ambush' && monster.ambushNaturalTrigger && !monster.ambushStruck) {
     monster.ambushStruck = true;
     const savedAtk = monster.atk;
     monster.atk = monster.atk * 2;
@@ -2224,10 +2224,11 @@ function monsterTurn(monster) {
   if (behavior === 'ambush') {
     const adjacent = Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1;
     if (adjacent) {
-      // Ambush strike: first hit deals bonus damage
+      // Ambush strike: first hit deals bonus damage (only on natural encounter)
       if (!monster.ambushTriggered) {
         monster.ambushTriggered = true;
-        // Bonus handled in monsterAttackPlayer via ambushTriggered flag
+        monster.ambushNaturalTrigger = true;  // Mark this as a natural ambush trigger
+        // Bonus handled in monsterAttackPlayer via ambushNaturalTrigger flag
       }
       monsterAttackPlayer(monster);
       return;
@@ -3075,17 +3076,17 @@ function renderProfessionSelect() {
   const profs = Object.values(PROFESSIONS);
   let text = `<span class="title">═══ CHOOSE YOUR PROFESSION ═══</span>\n\n`;
 
-  text += `  <span class="key">[A]</span> <span style="color:#e74c3c;font-weight:bold">Soldier</span>     HP: ${PROFESSIONS.soldier.hp}  SAN: 80  ATK: 3  DEF: 1
+  text += `  <span class="key">[A]</span> <span style="color:#e74c3c;font-weight:bold">Soldier</span>     HP: ${PROFESSIONS.soldier.hp}  SAN: ${PROFESSIONS.soldier.sanity}  ATK: 3  DEF: 1
       ${PROFESSIONS.soldier.desc}
       <span class="subtitle">Starts with: M1911 pistol, combat knife, laudanum, extra ammo</span>
       <span style="color:#888">Passive: ${PROFESSIONS.soldier.passive}</span>\n\n`;
 
-  text += `  <span class="key">[B]</span> <span style="color:#2ecc71;font-weight:bold">Doctor</span>      HP: ${PROFESSIONS.doctor.hp}  SAN: 95  ATK: 1  DEF: 0
+  text += `  <span class="key">[B]</span> <span style="color:#2ecc71;font-weight:bold">Doctor</span>      HP: ${PROFESSIONS.doctor.hp}  SAN: ${PROFESSIONS.doctor.sanity}  ATK: 1  DEF: 0
       ${PROFESSIONS.doctor.desc}
-      <span class="subtitle">Starts with: .38 revolver, medical bags (x2), morphine syrette</span>
+      <span class="subtitle">Starts with: shotgun, medical bags (x2), morphine syrette</span>
       <span style="color:#888">Passive: ${PROFESSIONS.doctor.passive}</span>\n\n`;
 
-  text += `  <span class="key">[C]</span> <span style="color:#3498db;font-weight:bold">Detective</span>   HP: ${PROFESSIONS.detective.hp}  SAN: 90  ATK: 2  DEF: 0
+  text += `  <span class="key">[C]</span> <span style="color:#3498db;font-weight:bold">Detective</span>   HP: ${PROFESSIONS.detective.hp}  SAN: ${PROFESSIONS.detective.sanity}  ATK: 2  DEF: 0
       ${PROFESSIONS.detective.desc}
       <span class="subtitle">Starts with: .38 revolver, hip flask (x2), extra ammo</span>
       <span style="color:#888">Passive: ${PROFESSIONS.detective.passive}</span>\n\n`;
