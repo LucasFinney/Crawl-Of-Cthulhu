@@ -10,7 +10,7 @@ A Cthulhu Mythos-themed ASCII roguelike built as a **single HTML file** (index.h
 - **No over-engineering**: Keep solutions simple and focused. A single file is part of the charm. Magic numbers should be replaced with proportional values, but don't add abstraction for its own sake.
 
 ## Architecture Overview
-- ~4000+ lines of JS in a single `index.html`
+- ~5000+ lines of JS in a single `index.html`
 - ASCII rendering via DOM spans with inline styles
 - Procedural dungeon generation with room placement, L-shaped corridors, flood-fill validation
 - Raycasting FOV with 4-directional facing and 120° (or 150° for Detective) view cone
@@ -39,6 +39,17 @@ A Cthulhu Mythos-themed ASCII roguelike built as a **single HTML file** (index.h
 - Update README and TODO.md when appropriate.
 - He values atmosphere and "feel" over mechanical complexity. If a system doesn't feel right in play, redesign it rather than patching it.
 
+## Current Work (as of 2026-03-31)
+
+### Recently Completed (this session)
+- **Side-by-side layout** (Caves of Qud-style): map left, message log right with draggable resize handle. Message log has fixed 500px width to prevent content-driven resizing. Display width auto-calculated from map columns. Centered layout preserved.
+- **Profession-specific sanity/lore system**: Per-profession sanity thresholds, hallucinations, and depth-indexed unique events (8 depths × 3 professions). Hidden backstory lore in code comments. Shared fallback events when unique pools are exhausted.
+- Replaced magic numbers with proportional values throughout (torch, SAN, stats bar colors, hallucination thresholds)
+- Added item drop system (D key in inventory)
+- Implemented multi-turn ambient event chains (3-beat narrative sequences)
+- Built full Web Audio API audio engine: ambient drone, heartbeat, dreamlands tones, 5 synthesized SFX, step sequencer with 4 composed music tracks
+- Removed redundant Enter-to-inspect in look mode
+
 ## Common Pitfalls (Learned from Experience)
 - **Dungeon generation**: Rooms can be sealed off if corridor carving doesn't overwrite walls. Flood-fill validation is the safety net.
 - **Door generation**: Naive door placement creates long lines of doors. Requires doorframe pattern detection (walls on two opposite sides).
@@ -46,6 +57,7 @@ A Cthulhu Mythos-themed ASCII roguelike built as a **single HTML file** (index.h
 - **Magic numbers**: All thresholds (torch warnings, SAN events, stat bar colors) should use proportions of max values, not hardcoded absolutes.
 - **Identification friction**: Manual "press X to examine" felt like busywork. Auto-identification by proximity + bestiary-through-kills is the current (working) approach.
 - **Grammar in combat messages**: Check for "You" as attacker to select correct verb forms ("hit" vs "hits").
+- **Flex layout height containment**: When using flexbox for side-by-side layout, flex items with `white-space: pre` or large content need `min-height: 0` to allow the flex container to constrain them. Without it, the content forces the container to grow beyond the viewport.
 
 ## Repository
 - GitHub: LucasFinney/Crawl-Of-Cthulhu

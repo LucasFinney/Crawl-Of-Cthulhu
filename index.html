@@ -18,7 +18,10 @@ body {
 #game-container {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 #title-bar {
   color: #6a0dad;
@@ -26,6 +29,7 @@ body {
   margin-bottom: 4px;
   letter-spacing: 2px;
   text-shadow: 0 0 8px #6a0dad66;
+  text-align: center;
 }
 #stats-bar {
   display: flex;
@@ -35,8 +39,8 @@ body {
   padding: 2px 8px;
   background: #111118;
   border: 1px solid #222;
-  min-width: 100%;
   justify-content: center;
+  flex-wrap: wrap;
 }
 .stat { white-space: nowrap; }
 .stat-hp { color: #cc3333; }
@@ -48,8 +52,16 @@ body {
 .stat-gold { color: #f39c12; }
 .stat-stam { color: #2ecc71; }
 
+/* Side-by-side layout: map left, message log right */
+#main-area {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 #display {
-  font-size: 15px;
+  font-size: 13px;
   line-height: 1.15;
   letter-spacing: 1px;
   white-space: pre;
@@ -57,18 +69,36 @@ body {
   border: 1px solid #1a1a2e;
   padding: 4px;
   box-shadow: 0 0 20px #0005, inset 0 0 30px #06001a22;
+  flex-shrink: 0;
+  flex-grow: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+#resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: #1a1a2e;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+#resize-handle:hover, #resize-handle.dragging {
+  background: #6a0dad88;
 }
 #message-log {
-  margin-top: 4px;
-  padding: 4px 8px;
+  padding: 6px 10px;
   background: #111118;
   border: 1px solid #222;
-  font-size: 12px;
-  min-height: 60px;
-  max-height: 60px;
+  font-size: 14px;
+  line-height: 1.5;
   overflow-y: auto;
-  min-width: 100%;
+  overflow-x: hidden;
   color: #888;
+  width: 500px;
+  flex-shrink: 0;
+  min-height: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 #message-log .msg-danger { color: #cc3333; }
 #message-log .msg-warning { color: #e67e22; }
@@ -76,11 +106,17 @@ body {
 #message-log .msg-sanity { color: #9b59b6; }
 #message-log .msg-lore { color: #6a0dad; }
 #message-log .msg-info { color: #888; }
+#message-log div {
+  padding: 2px 0;
+  border-bottom: 1px solid #1a1a22;
+}
+#message-log div:last-child { border-bottom: none; }
 
 #help-bar {
   margin-top: 4px;
   font-size: 11px;
   color: #555;
+  text-align: center;
 }
 
 /* Overlay screens */
@@ -115,8 +151,11 @@ body {
 <div id="game-container">
   <div id="title-bar">☽ CRAWL OF CTHULHU ☽</div>
   <div id="stats-bar"></div>
-  <div id="display"></div>
-  <div id="message-log"></div>
+  <div id="main-area">
+    <div id="display"></div>
+    <div id="resize-handle"></div>
+    <div id="message-log"></div>
+  </div>
   <div id="help-bar">[←↑↓→/WASD] Move · [Tab] Run · [L] Look/Aim · [F] Fire · [R] Reload · [G] Pick up · [T] Torch · [I] Inventory · [[ / ]] Turn · [>] Descend · [M] Mute · [?] Help</div>
 </div>
 
@@ -631,14 +670,665 @@ const CAT_COMMENTS_DEEP = [
   '"The things below are not meant for mortal eyes. But you knew that."',
 ];
 
-// ── Sanity event table ──────────────────────────────────────
-// Sanity event thresholds as proportion of maxSanity (triggered as SAN drops below each)
-const SANITY_EVENTS = [
-  { pct: 0.60, msg: 'The shadows seem to shift when you look away...', type: 'msg-sanity' },
-  { pct: 0.40, msg: 'You hear whispers in a language older than mankind.', type: 'msg-sanity' },
-  { pct: 0.25, msg: 'The walls are breathing. They are BREATHING.', type: 'msg-danger' },
-  { pct: 0.10, msg: 'Something vast and incomprehensible watches you from behind the stars.', type: 'msg-danger' },
-];
+// ── Profession backstories (hidden lore) ──────────────────────
+//
+// ── SOLDIER: Corporal James Harlan ──
+// AEF veteran, Meuse-Argonne offensive, 1918. During a night patrol in the
+// Argonne Forest his squad entered a network of German tunnels that descended
+// far deeper than any map showed. They found chambers older than the war —
+// older than civilization. Something lived down there. Harlan was the only
+// one who walked out. The Army listed the rest as MIA. He knows better.
+// He's heard the tunnels calling ever since. When he saw the diagrams in the
+// old Miskatonic texts — the geometry was the same. The caves beneath Arkham
+// are connected to the Argonne. He's sure of it. He has to go back down.
+//
+// ── DOCTOR: Dr. Eleanor Marsh ──
+// Practiced medicine at St. Mary's Hospital in Arkham. Three years ago a
+// Jane Doe was brought in from the waterfront, covered in symbols she had
+// carved into her own skin. The woman died on Eleanor's table, but not before
+// whispering a phrase: "The skin remembers." The autopsy revealed organs
+// arranged in configurations that violated known anatomy — yet the body had
+// been alive. Eleanor's report was buried by the hospital board. She kept
+// investigating. More patients appeared with the same carvings, the same
+// whispered phrase. Each autopsy worse than the last. The trail led beneath
+// the hospital itself, to tunnels that shouldn't exist.
+//
+// ── DETECTIVE: Arthur Callahan ──
+// Private investigator. Six months ago his partner Victor went to Arkham to
+// investigate a string of disappearances near Miskatonic University. Victor's
+// last letter contained a torn page from a library book, a sketch of a door
+// with no handle, and three words: "Don't follow me." Arthur followed. He
+// found Victor's office ransacked, his case board covered in red string
+// connecting names, dates, and a symbol Arthur had never seen before. Victor's
+// notebook — found wedged behind a radiator — was filled with increasingly
+// erratic handwriting. The last legible entry read: "The door is below. It
+// opens from the other side."
+//
+
+// ── Sanity event tables ───────────────────────────────────────
+// Threshold events (SAN-gated, fire once per crossing) and hallucinations
+// (cosmetic flickers at low SAN) remain per-profession but not depth-indexed.
+const PROFESSION_SANITY = {
+  soldier: {
+    thresholds: [
+      { pct: 0.60, msg: 'For a moment, the stone corridors look like trench walls. You smell mud and cordite.', type: 'msg-sanity' },
+      { pct: 0.40, msg: 'You hear Sergeant Davis calling roll. He\'s been dead since the Argonne.', type: 'msg-sanity' },
+      { pct: 0.25, msg: 'The tunnels are the same. The SAME tunnels. You never left the Argonne.', type: 'msg-danger' },
+      { pct: 0.10, msg: 'They\'re still down here. Your whole squad. Waiting for you to lead them deeper.', type: 'msg-danger' },
+    ],
+    hallucinations: [
+      'You see boot prints in the dust — military issue. They look like yours, from years ago.',
+      'The crack of a Mauser rifle echoes from nowhere. Old instincts take over.',
+      'Mud seeps up between the stones. It smells like No Man\'s Land.',
+      'You hear digging — frantic, desperate — from behind the wall.',
+      'For an instant, torchlight becomes a flare hanging over the trenches.',
+      'Someone whispers the rallying point coordinates. You almost respond.',
+    ],
+  },
+  doctor: {
+    thresholds: [
+      { pct: 0.60, msg: 'Your hands are shaking. They haven\'t done that since the Jane Doe autopsy.', type: 'msg-sanity' },
+      { pct: 0.40, msg: 'You hear her voice again: "The skin remembers." You\'re starting to understand what she meant.', type: 'msg-sanity' },
+      { pct: 0.25, msg: 'The carvings on the walls match the symbols on her skin. You can almost read them now.', type: 'msg-danger' },
+      { pct: 0.10, msg: 'You understand the symbols. You understand ALL of them. You wish you didn\'t.', type: 'msg-danger' },
+    ],
+    hallucinations: [
+      'You smell antiseptic. The sharp, clean scent of St. Mary\'s operating theater.',
+      'Your hands move on their own, mimicking an incision you never learned.',
+      'You see veins in the stone walls, pulsing with something dark.',
+      'A heart monitor beeps somewhere — steady, then flatline.',
+      'The walls are skin. Warm, yielding skin stretched over something vast.',
+      'Your surgical gloves are on. You weren\'t wearing gloves.',
+    ],
+  },
+  detective: {
+    thresholds: [
+      { pct: 0.60, msg: 'You find scratch marks on the wall. The same pattern as Victor\'s last sketch.', type: 'msg-sanity' },
+      { pct: 0.40, msg: 'Victor\'s handwriting appears in the dust at your feet: "THE DOOR IS BELOW."', type: 'msg-sanity' },
+      { pct: 0.25, msg: 'You see Victor ahead in the corridor. He turns a corner. He\'s been dead for months.', type: 'msg-danger' },
+      { pct: 0.10, msg: 'The door. The door with no handle. It\'s here. And it\'s opening from the other side.', type: 'msg-danger' },
+    ],
+    hallucinations: [
+      'Red string stretches between the stones, connecting symbols you almost recognize.',
+      'You find a torn page on the ground. Victor\'s notebook. It\'s blank.',
+      'A telephone rings from behind the wall. Two rings. No one is calling.',
+      'A name is scratched into the stone — one of the missing persons.',
+      'Your own case file lies open on the floor. Your name is on the last page.',
+      'You see a door with no handle. You blink. It\'s just a wall.',
+    ],
+  },
+};
+
+// ── Depth-indexed unique events ───────────────────────────────
+// Each depth has a pool of profession-specific events that fire at most once.
+// When the unique pool is exhausted, only shared/generic events remain until
+// the player descends to the next depth and gets a fresh pool.
+// Index 0 is unused; depths 1-8 map to array indices 1-8.
+//
+// Narrative arcs:
+//   Soldier — The Argonne tunnels and Arkham are connected. His squad never left.
+//   Doctor  — The Jane Doe was a messenger. The tunnels are alive. Eleanor is the surgeon.
+//   Detective — Victor came willingly. The missing weren't taken. The case was about Arthur.
+
+const DEPTH_EVENTS = {
+  // ═══════════════════════════════════════════════════════════
+  //  SOLDIER — "The war followed him underground"
+  // ═══════════════════════════════════════════════════════════
+  soldier: [null,
+    // ── Depth 1: "Just nerves" ──
+    { mild: [
+        'The air down here tastes like mud. Like the trenches. Just a coincidence.',
+        'Your boot catches on something — a rusted tin can. Military rations. Old.',
+        'Somewhere, a drip echoes in a rhythm that sounds like morse code.',
+      ],
+      darkMild: ['In the dark, the walls feel like packed earth. Like a dugout.'],
+      surreal: [
+        'For a moment, the corridor ahead is a communication trench. Duckboards, sandbags. Then stone again.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You smell tobacco smoke. Not your brand — Army issue.', style: 'msg-lore' },
+        { msg: 'The smoke is thicker. A cigarette burns on the ground ahead, still lit.', style: 'msg-warning' },
+        { msg: 'You pick it up. It\'s the brand Sergeant Davis smoked. The ember is warm.', dice: { pass: [0,1], fail: [1,4] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 2: "Déjà vu" ──
+    { mild: [
+        'Shell fragments are embedded in the wall. Shrapnel from a war fought underground.',
+        'You find scratches in the stone — tally marks. Someone was counting days.',
+        'A military button lies in the dust. American Expeditionary Forces.',
+      ],
+      darkMild: ['A whistle blast echoes in the darkness. The signal to go over the top.'],
+      surreal: [
+        'The tally marks on the wall number in the hundreds. They\'re in your handwriting.',
+        'A tin helmet hangs from a peg that shouldn\'t exist. It has your name stenciled inside.',
+      ],
+      chains: [{ beats: [
+        { msg: 'A faint tapping comes from behind the wall. Rhythmic. Morse code.', style: 'msg-lore' },
+        { msg: 'You translate: S-T-I-L-L  H-E-R-E.', style: 'msg-warning' },
+        { msg: 'The tapping changes: W-E  W-A-I-T-E-D  F-O-R  Y-O-U.', dice: { pass: [1,2], fail: [1,6] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 3: "The Argonne bleeds through" ──
+    { mild: [
+        'Sandbags line the corridor walls. They\'re leaking black mud.',
+        'You hear a gramophone — scratchy, distant. "It\'s a Long Way to Tipperary."',
+        'A length of barbed wire stretches across the passage. Rusted. French-made.',
+      ],
+      darkMild: ['The sound of shelling — muffled, distant, but unmistakable — rolls through the dark.'],
+      surreal: [
+        'Private Collins stands in the doorway ahead. He waves you forward. Collins died at the Meuse.',
+        'A field telephone sits on the ground, wire trailing into the wall. It rings.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find a shallow trench cut into the floor. Recent. This stone has been worked.', style: 'msg-lore' },
+        { msg: 'The trench leads deeper, widening. Duckboards appear, perfectly preserved.', style: 'msg-warning' },
+        { msg: 'At the end: a dugout. A lantern burns inside. Someone was here minutes ago.', dice: { pass: [1,2], fail: [1,6] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 4: "They were here" ──
+    { mild: [
+        'Dog tags hang from a nail in the wall. You recognize three of the names.',
+        'A rifle leans against the wall — an M1917 Enfield. Standard issue. Loaded.',
+        'Bootprints in the mud ahead. Military tread. Multiple sets, moving in formation.',
+      ],
+      darkMild: ['In the dark, you hear a squad breathing. Sleeping. Waiting for orders.'],
+      surreal: [
+        'A map is pinned to the wall. The Argonne tunnels. Someone has drawn an unbroken line from France to Arkham.',
+        'You find your own field journal from 1918. The last entry describes this room.',
+      ],
+      chains: [{ beats: [
+        { msg: 'A message is scratched into the wall: HARLAN, KEEP MOVING.', style: 'msg-warning' },
+        { msg: 'Another, deeper in: HARLAN, WE FOUND THE SOURCE.', style: 'msg-warning' },
+        { msg: 'A third, barely legible: HARLAN, IT FOUND US FIRST.', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [{ beats: [
+        { msg: 'In the darkness, you hear breathing. Rhythmic. Military. A squad at rest.', style: 'msg-warning' },
+        { msg: 'Someone whispers the rallying point coordinates. They\'re the coordinates of this room.', style: 'msg-danger' },
+        { msg: 'A hand grips your shoulder from behind. Calloused. Familiar. Cold.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+    },
+    // ── Depth 5: "The connection" ──
+    { mild: [
+        'The stone here has the same veining pattern as the deepest Argonne tunnels.',
+        'You find a spent cartridge from a Chauchat. French. From the war.',
+        'The walls hum at a frequency you last felt in the tunnels beneath Verdun.',
+      ],
+      darkMild: ['Something moves in the dark the way it moved in the Argonne. The same gait. The same patience.'],
+      surreal: [
+        'The tunnel forks. Both paths look exactly like the junction where your squad split up in 1918.',
+        'You see yourself from behind — walking point, rifle up, squad in formation. Then you blink.',
+      ],
+      chains: [{ beats: [
+        { msg: 'A voice calls out: "Corporal Harlan! Report!" Sergeant Davis\'s voice.', style: 'msg-warning' },
+        { msg: 'You round the corner. Boot marks. Fresh. A squad was here moments ago.', style: 'msg-warning' },
+        { msg: 'Carved into the wall at chest height: your unit insignia. The stone beneath it is warm.', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 6: "They never left" ──
+    { mild: [
+        'You hear marching. Not distant — close. Through the walls. In step.',
+        'A helmet sits on the ground, filled with black water. A face in the water that isn\'t yours.',
+        'The walls are carved with unit numbers. Your regiment. Your battalion. Your squad.',
+      ],
+      darkMild: ['Breathing. Close. Many. They\'re on the other side of the wall, moving in formation.'],
+      surreal: [
+        'Private Collins steps out of the wall. He\'s smiling. His eyes are wrong — too many pupils.',
+        'You find the squad in the next room. Standing at attention. They\'ve been waiting since 1918.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You hear Sergeant Davis: "Fall in, Harlan. Last patrol."', style: 'msg-warning' },
+        { msg: 'Footsteps fall in behind you. A full squad. You can feel their weight on the stone.', style: 'msg-danger' },
+        { msg: 'Davis whispers: "We found what lives below. It gave us new orders." His voice is coming from inside the wall.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [{ beats: [
+        { msg: 'The dark is full of soldiers. You can feel them standing in formation around you.', style: 'msg-warning' },
+        { msg: 'One of them presses something cold into your hand. Your service revolver.', style: 'msg-danger' },
+        { msg: 'A voice — yours, but deeper: "One last mission, Corporal. Fall in."', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+    },
+    // ── Depth 7: "New orders" ──
+    { mild: [
+        'The walls bear an insignia — your unit\'s eagle, but warped. Changed. Improved.',
+        'You hear your name in a voice that is Davis and not-Davis. Harmonics a throat shouldn\'t make.',
+        'A prayer card lies on the ground — St. Michael. The image is moving.',
+      ],
+      darkMild: ['Hands grip your arms in the dark. Calloused. Military. They guide you forward. They will not let go.'],
+      surreal: [
+        'The squad is everywhere now. In the walls. In the floor. They\'ve become part of the tunnels.',
+        'Sergeant Davis briefs you in a language older than speech. You understand every word.',
+      ],
+      chains: [{ beats: [
+        { msg: 'A parade ground has been carved into the stone. Vast. Impossible.', style: 'msg-warning' },
+        { msg: 'Your squad stands in formation. They turn to face you. In unison.', style: 'msg-danger' },
+        { msg: 'Davis salutes. "Mission complete, Corporal. Time to re-enlist." His mouth has too many teeth.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 8: "The tunnels were always here" ──
+    { mild: [
+        'You realize the Argonne tunnels didn\'t connect to Arkham. They were always the same place.',
+        'A framed photograph on the wall: your squad, 1918. Behind them, this room.',
+        'The enlistment papers are carved into the floor. Dated centuries before the war.',
+      ],
+      darkMild: ['The dark breathes with you now. You march in step with something vast.'],
+      surreal: [
+        'The war was a lure. Millions of men, driven underground. A harvest.',
+        'You see the geometry of it — trenches above, tunnels below, all connected, all one organism.',
+      ],
+      chains: [{ beats: [
+        { msg: 'Your squad stands in a circle, facing inward. They\'re singing. The melody is beautiful and wrong.', style: 'msg-danger' },
+        { msg: 'They part to reveal what stands at the center. It has always been here. Since before the war.', style: 'msg-danger' },
+        { msg: 'It wears a helmet. Your helmet. It extends a hand. One last patrol.', dice: { pass: [1,6], fail: [2,12] } },
+      ]}],
+      darkChains: [],
+    },
+  ],
+
+  // ═══════════════════════════════════════════════════════════
+  //  DOCTOR — "The body remembers what the mind forgets"
+  // ═══════════════════════════════════════════════════════════
+  doctor: [null,
+    // ── Depth 1: "Clinical observation" ──
+    { mild: [
+        'You catalog your surroundings instinctively. Damp. Cold. Poor conditions for wound care.',
+        'A faint chemical smell — not formaldehyde, but close. Something organic breaking down.',
+        'You notice scratch marks on the wall at varying heights. Patient behavior.',
+      ],
+      darkMild: ['In the dark, you time your pulse. Elevated. Expected. The clinical habit is comforting.'],
+      surreal: [
+        'A chart hangs from the wall: vitals, dosages, notes in a hand you almost recognize. Your hand.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find a stain on the floor. Dark. Old. You kneel to examine it — force of habit.', style: 'msg-lore' },
+        { msg: 'Not blood. Too thick. The consistency of spinal fluid, but black.', style: 'msg-warning' },
+        { msg: 'The stain has a pulse. You felt it through your fingertips.', dice: { pass: [0,1], fail: [1,4] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 2: "Someone practiced here" ──
+    { mild: [
+        'Surgical clamps lie on a stone shelf. Cleaned. Organized. Someone maintained them.',
+        'You find glass jars in an alcove. Specimens. Nothing you can identify.',
+        'The walls are scored with fine lines — anatomical markings. Someone was measuring.',
+      ],
+      darkMild: ['Your fingers find glass in the dark. Jars. Sealed. Something moves inside one.'],
+      surreal: [
+        'An operating theater has been carved from the rock. The table is warm.',
+        'The anatomical markings on the walls don\'t match any textbook. But they\'re more complete.',
+      ],
+      chains: [{ beats: [
+        { msg: 'A medical journal lies open on the ground. The handwriting starts precise, ends frantic.', style: 'msg-lore' },
+        { msg: 'The final pages describe a procedure. "Patient responsive to reconfiguration. Organs viable in new arrangement."', style: 'msg-warning' },
+        { msg: 'The last page is a mirror. You see yourself. You look like a patient.', dice: { pass: [1,2], fail: [1,6] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 3: "The Jane Doe connection" ──
+    { mild: [
+        'You see carvings in the stone — the same symbols that were on the Jane Doe\'s skin.',
+        'A hospital gown hangs from a hook. St. Mary\'s logo. It shouldn\'t be here.',
+        'The moisture on the walls has a sweet smell. Like surgical antiseptic.',
+      ],
+      darkMild: ['In the dark, you hear a woman whispering. The same cadence as the Jane Doe\'s last words.'],
+      surreal: [
+        'The symbols on the walls are instructions. You can read them now. You wish you couldn\'t.',
+        'A woman\'s hand reaches from a crack in the wall. The fingertips are covered in familiar carvings.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find a patient wristband on the ground. "Jane Doe, Admitted 09/1923, St. Mary\'s."', style: 'msg-lore' },
+        { msg: 'Another wristband. Different name. Same date. Then another. And another.', style: 'msg-warning' },
+        { msg: 'The last wristband reads "Eleanor Marsh." Your admission date is today.', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [{ beats: [
+        { msg: 'Something in the dark has a pulse. You can feel it through the floor.', style: 'msg-warning' },
+        { msg: 'Your medical training surfaces unbidden: that\'s not a heartbeat. It\'s peristalsis.', style: 'msg-danger' },
+        { msg: 'The walls contract around you. Warm. Wet. Alive.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+    },
+    // ── Depth 4: "The body knows" ──
+    { mild: [
+        'Your hands ache. Phantom muscle memory — the motions of a procedure you never performed.',
+        'You feel your own pulse in places you shouldn\'t. Your kneecap. Your collarbone. Your teeth.',
+        'A faint itch beneath your skin, tracing lines you\'ve seen on the walls.',
+      ],
+      darkMild: ['In the dark, your body maps itself. Every organ, every vessel. You\'ve never been this aware.'],
+      surreal: [
+        'The carvings on the walls match marks appearing on your own skin. Faint. Red. Growing.',
+        'You see your own X-ray projected on the wall. Something extra is growing alongside your spine.',
+      ],
+      chains: [{ beats: [
+        { msg: 'Your fingers trace the symbols on the wall involuntarily. They know the pattern.', style: 'msg-warning' },
+        { msg: 'The pattern continues onto your arm. Your finger is carving into your own skin. No pain.', style: 'msg-danger' },
+        { msg: 'The carving is complete. It reads: PREPARED. The wound closes on its own.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 5: "Not wrong — improved" ──
+    { mild: [
+        'You find an autopsy report. The organs weren\'t displaced. They were optimized.',
+        'The tunnel humidity is exactly 98.6°F. Body temperature. Maintained.',
+        'A heart beats in the wall. You press your ear to the stone. Steady. Strong.',
+      ],
+      darkMild: ['In the dark, you hear respiration. Not human lungs — something far larger. Far more efficient.'],
+      surreal: [
+        'An anatomical diagram shows a human body — improved. Extra organs. Better symmetry. You see the logic.',
+        'A surgical log: "Subject adapted successfully. Organs in new configuration." The subject\'s name is redacted.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find a row of specimens in jars. Each shows a progressive transformation.', style: 'msg-lore' },
+        { msg: 'The last jar is empty. A label reads: "Reserved for Dr. Marsh. Voluntary."', style: 'msg-danger' },
+        { msg: 'You understand now. The Jane Doe wasn\'t a victim. She was a success story who came to recruit you.', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 6: "Inside something alive" ──
+    { mild: [
+        'The tunnel walls contract slightly as you pass. Peristalsis.',
+        'A rhythmic thumping echoes through the stone. A heartbeat. The tunnel\'s heartbeat.',
+        'The floor is soft here. Yielding. Warm. Alive.',
+      ],
+      darkMild: ['The dark itself breathes. Expansion. Contraction. You time it: 12 breaths per minute.'],
+      surreal: [
+        'You realize the tunnels are veins. You\'ve been traveling through a circulatory system.',
+        'The walls secrete fluid. You analyze it automatically: white blood cells. You are inside an immune system.',
+      ],
+      chains: [{ beats: [
+        { msg: 'The corridor narrows. The walls are smooth. Warm. They have a pulse.', style: 'msg-warning' },
+        { msg: 'You\'ve entered something. An organ. The chamber opens into a cavity lined with cilia.', style: 'msg-danger' },
+        { msg: 'It\'s reading you. Processing you through your skin. A diagnosis in reverse.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [{ beats: [
+        { msg: 'The darkness has a heartbeat. You feel it in your ribs.', style: 'msg-warning' },
+        { msg: 'It\'s synchronizing with yours. Beat by beat, you\'re falling into its rhythm.', style: 'msg-danger' },
+        { msg: 'Your heart stops — then restarts, in time with the tunnel. You belong to it now.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+    },
+    // ── Depth 7: "The skin remembers" ──
+    { mild: [
+        'Your surgical scars tingle. Every patient you\'ve ever sutured — you feel their wounds.',
+        'The symbols are everywhere now. Ceiling, floor, walls. An owner\'s manual for the human body.',
+        'You hear the Jane Doe\'s voice clearly: "You were always meant to come here, Doctor."',
+      ],
+      darkMild: ['In the dark, your skin crawls. Literally. Rearranging itself. Preparing.'],
+      surreal: [
+        'You\'re in St. Mary\'s OR. The patient on the table is the tunnel itself. It needs surgery.',
+        'The Jane Doe stands before you, carvings glowing. "I was the invitation. You are the guest of honor."',
+      ],
+      chains: [{ beats: [
+        { msg: 'A voice — your voice — echoes through the tunnel: "The procedure is simple."', style: 'msg-warning' },
+        { msg: '"Open the patient. Rearrange to specification. The body adapts." You didn\'t speak.', style: 'msg-danger' },
+        { msg: '"You\'ve been preparing your whole career, Eleanor." A scalpel appears in your hand.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 8: "The final procedure" ──
+    { mild: [
+        'A vast surgical theater, carved from living stone. The table in the center is meant for you.',
+        'Every autopsy you\'ve performed was practice for this. You understand that now.',
+        'The symbols on the walls pulse in time with your heartbeat. They always have.',
+      ],
+      darkMild: ['In the dark, gentle hands guide you forward. They\'re wearing surgical gloves.'],
+      surreal: [
+        'You are both surgeon and patient. The procedure has already begun. It started when you read the first symbol.',
+        'The Jane Doe, the hospital, the tunnels — all one organism. It has been waiting for a doctor.',
+      ],
+      chains: [{ beats: [
+        { msg: 'The operating theater awaits. Instruments laid out. A mirror above the table shows your body — already partly changed.', style: 'msg-danger' },
+        { msg: 'The symbols on your skin glow. Your hands move with purpose. The procedure is automatic.', style: 'msg-danger' },
+        { msg: 'The tunnel sighs as you complete the incision. Something ancient stirs. You have healed a god.', dice: { pass: [1,6], fail: [2,12] } },
+      ]}],
+      darkChains: [],
+    },
+  ],
+
+  // ═══════════════════════════════════════════════════════════
+  //  DETECTIVE — "The case solves itself"
+  // ═══════════════════════════════════════════════════════════
+  detective: [null,
+    // ── Depth 1: "Picking up the trail" ──
+    { mild: [
+        'You find a matchbook on the ground. The Arkham Arms hotel — where Victor was staying.',
+        'A chalk mark on the wall — Victor\'s shorthand for "area cleared." He was here.',
+        'Cigarette ash in the corner. Fresh enough. Someone was here recently.',
+      ],
+      darkMild: ['In the dark, you reach for your pocket notebook. Old habits. You start taking notes.'],
+      surreal: [
+        'A chalk outline on the floor. Crime scene standard. But the shape has too many limbs.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find a scrap of paper: Victor\'s handwriting. "Level 1 — standard layout. Will proceed."', style: 'msg-lore' },
+        { msg: 'Another note, tucked into a crack: "More extensive than expected. Map doesn\'t match."', style: 'msg-warning' },
+        { msg: 'A third, crumpled: "The map CHANGES. The architecture moves." The handwriting is shaking.', dice: { pass: [0,1], fail: [1,4] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 2: "Victor's method" ──
+    { mild: [
+        'Red string is tied to a nail in the wall. Victor\'s system for marking paths.',
+        'A photograph wedged into a crack — one of the missing persons. "Margaret Holt, age 34."',
+        'You find Victor\'s lockpick set discarded on the ground. He never went anywhere without it.',
+      ],
+      darkMild: ['In the dark, you hear a camera shutter. Click. Flash. The afterimage shows an empty corridor.'],
+      surreal: [
+        'A complete case board is pinned to the wall. It tracks YOUR movements. From today.',
+        'Victor\'s magnifying glass sits on the ground. Through it, the walls are covered in invisible writing.',
+      ],
+      chains: [{ beats: [
+        { msg: 'A canvas bag is tucked behind a rock. Victor\'s. Inside: case files, a flask, a photograph of you both.', style: 'msg-lore' },
+        { msg: 'The case files are for the missing persons. Each has a note: "Found. Chose to stay."', style: 'msg-warning' },
+        { msg: 'The last file is yours. "Status: In Progress. Expected arrival: today."', dice: { pass: [1,2], fail: [1,6] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 3: "They came willingly" ──
+    { mild: [
+        'Personal effects litter the ground — a woman\'s shoe, a wallet, reading glasses. Abandoned, not taken.',
+        'A diary page: "I heard it calling from beneath the library. I CHOSE to answer."',
+        'You find a resignation letter, never sent. "I\'ve found something more important than my life above."',
+      ],
+      darkMild: ['A voice in the dark, soft: "Welcome. We\'ve been expecting the next one."'],
+      surreal: [
+        'The missing persons aren\'t missing. They left breadcrumbs on purpose. They WANTED to be followed.',
+        'Signatures cover the walls. Every missing person. Signed willingly.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find neatly folded clothes. Shoes placed side by side. A welcoming committee\'s worth.', style: 'msg-lore' },
+        { msg: 'A guest book sits on a stone ledge. Names, dates, occupations. The missing persons registered here.', style: 'msg-warning' },
+        { msg: 'The last entry: "Victor Callahan, PI. Investigating the disappearances. Staying for the truth."', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 4: "Victor's warnings" ──
+    { mild: [
+        'Victor\'s handwriting on the wall: "TURN BACK, ARTHUR." Three inches tall.',
+        'A torn page: "The door changes you. Understanding is a trap."',
+        'You find Victor\'s revolver. Fully loaded. He didn\'t fire a single shot.',
+      ],
+      darkMild: ['Victor\'s voice in the dark, urgent: "Don\'t look at the door, Arthur. Whatever you do."'],
+      surreal: [
+        'Victor\'s warnings are everywhere. Hundreds of them. All saying: "It\'s too late for me. Save yourself."',
+        'You see Victor\'s reflection in a puddle, though you\'re alone. He\'s shaking his head.',
+      ],
+      chains: [{ beats: [
+        { msg: 'Carved deep into the wall: "ARTHUR — I UNDERSTAND NOW. THE CASE WAS BAIT."', style: 'msg-warning' },
+        { msg: 'Below it: "THE DISAPPEARANCES AREN\'T A CRIME. THEY\'RE AN INVITATION."', style: 'msg-warning' },
+        { msg: 'Below that, in different handwriting — steadier, colder: "AND YOU RSVP\'D."', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [{ beats: [
+        { msg: 'In the darkness, you hear a pen scratching on paper. Taking notes.', style: 'msg-warning' },
+        { msg: 'The scratching stops. Someone tears a page from a notebook. Deliberately.', style: 'msg-danger' },
+        { msg: 'Victor\'s voice reads aloud: your name, your location, the time of your death.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+    },
+    // ── Depth 5: "Victor is alive" ──
+    { mild: [
+        'A fresh cigarette butt. Victor\'s brand. The ash is still warm.',
+        'You hear footsteps ahead — Victor\'s gait. You\'d know it anywhere. Walking, not running.',
+        'A note in Victor\'s hand, recent ink: "I\'m sorry, Arthur. I can\'t leave. I don\'t want to."',
+      ],
+      darkMild: ['Victor\'s voice, calm: "I\'m here, Arthur. I\'ve been here the whole time. I\'m not lost."'],
+      surreal: [
+        'You see Victor through a crack in the wall. He\'s sitting at a desk, writing. He looks content.',
+        'Victor\'s case board is complete. Every string connected. The solution is a symbol you stare at too long.',
+      ],
+      chains: [{ beats: [
+        { msg: 'You find a camp. Victor\'s belongings, neatly arranged. He\'s been living here.', style: 'msg-lore' },
+        { msg: 'His journal, recent: "Arthur will come. He always does. I need to prepare him."', style: 'msg-warning' },
+        { msg: '"The door showed me everything. I can\'t go back to not knowing. Neither will he."', dice: { pass: [1,3], fail: [1,8] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 6: "The door" ──
+    { mild: [
+        'You see a door with no handle, set into the wall. It hums faintly.',
+        'The missing persons\' names are carved around a doorframe like an inscription.',
+        'The door is warm to the touch. Something on the other side is breathing.',
+      ],
+      darkMild: ['In the dark, you feel the door before you see it. It radiates awareness.'],
+      surreal: [
+        'The door is everywhere now. Every wall has one. They\'re multiplying.',
+        'You press your ear to the door. You hear your own voice on the other side, telling you to open it.',
+      ],
+      chains: [{ beats: [
+        { msg: 'The door with no handle. Victor\'s sketch was perfect. Exactly as he drew it.', style: 'msg-warning' },
+        { msg: 'As you approach, the surface ripples. Not wood or stone. Something else.', style: 'msg-danger' },
+        { msg: 'A seam appears. The door doesn\'t open — it dilates. Like a pupil adjusting to light.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [{ beats: [
+        { msg: 'In the dark, you feel the door. Warm. Thrumming. It knows you\'re here.', style: 'msg-warning' },
+        { msg: 'The door speaks. Not in words — in understanding. It shows you what\'s on the other side.', style: 'msg-danger' },
+        { msg: 'You see everything. Every missing person. Every answered question. The door asks: "Ready?"', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+    },
+    // ── Depth 7: "The investigation reverses" ──
+    { mild: [
+        'You find surveillance photographs of your office. Your apartment. Taken from impossible angles.',
+        'A case file on you. Thorough. It knows things you\'ve never told anyone.',
+        'The missing persons\' voices echo from the walls. They\'re discussing your progress.',
+      ],
+      darkMild: ['Whispered deliberation in the dark. They\'re evaluating your case. You are the case.'],
+      surreal: [
+        'The missing persons stand in a circle, studying you. They\'ve been investigating you this whole time.',
+        'Victor steps forward: "We\'ve concluded our investigation, Arthur. You\'re cleared for admission."',
+      ],
+      chains: [{ beats: [
+        { msg: 'An interview room carved from stone. A chair on each side of a table. Victor sits in one.', style: 'msg-warning' },
+        { msg: 'He slides a file across: YOUR file. "I investigated you, Arthur. You were always the real case."', style: 'msg-danger' },
+        { msg: '"The disappearances were a filter. Only the right kind of person follows." He smiles. His eyes are doors.', dice: { pass: [1,4], fail: [1,10] } },
+      ]}],
+      darkChains: [],
+    },
+    // ── Depth 8: "The case closes" ──
+    { mild: [
+        'Every case you\'ve ever closed was a breadcrumb leading here. The pattern is obvious now.',
+        'Victor\'s letter sits on a pedestal. "Don\'t follow me" was the first test. You passed.',
+        'Red string connects everything. Every case. Every clue. Every life you\'ve lived. All one case.',
+      ],
+      darkMild: ['The dark is full of people. Waiting. They\'ve solved the final mystery. They want to share it.'],
+      surreal: [
+        'The door stands open. Behind it is not a room but an understanding. You feel it pulling.',
+        'Victor stands at the threshold. "The last missing person was always you, Arthur. Come home."',
+      ],
+      chains: [{ beats: [
+        { msg: 'The door is open. Beyond it, light. Not sunlight — something older, vaster.', style: 'msg-danger' },
+        { msg: 'Victor stands inside, surrounded by the missing. They look peaceful. Complete.', style: 'msg-danger' },
+        { msg: 'Victor extends his hand: "The case is closed, Arthur. You found everyone. Including yourself."', dice: { pass: [1,6], fail: [2,12] } },
+      ]}],
+      darkChains: [],
+    },
+  ],
+};
+
+// ── Shared generic events (infinite fallback pool) ────────────
+// These play when the current depth's unique events have all been seen.
+const SHARED_EVENTS = {
+  chains: [
+    { beats: [
+      { msg: 'You hear something wet dragging itself along the corridor behind you.', style: 'msg-warning' },
+      { msg: 'The dragging sound is closer now.', style: 'msg-warning' },
+      { msg: 'The sound stops. The silence is worse.', dice: { pass: [0,1], fail: [1,6] } },
+    ]},
+    { beats: [
+      { msg: 'A faint scratching comes from behind the wall to your left.', style: 'msg-lore' },
+      { msg: 'The scratching has moved. It\'s following you.', style: 'msg-warning' },
+      { msg: 'It stops. A single, deliberate knock comes from the other side of the wall.', dice: { pass: [1,2], fail: [1,6] } },
+    ]},
+    { beats: [
+      { msg: 'A distant sound — rhythmic, like a heartbeat — pulses through the stone.', style: 'msg-lore' },
+      { msg: 'The pulse is louder. The walls vibrate faintly in time.', style: 'msg-warning' },
+      { msg: 'The pulsing stops. In the silence, you realize: it was your heartbeat, amplified a thousandfold.', dice: { pass: [0,1], fail: [1,4] } },
+    ]},
+    { beats: [
+      { msg: 'A child\'s humming echoes from somewhere in the tunnels.', style: 'msg-warning' },
+      { msg: 'The humming is coming from the direction you just came from.', style: 'msg-warning' },
+      { msg: 'The humming stops mid-note. A small voice says: "Found you."', dice: { pass: [1,3], fail: [1,8] } },
+    ]},
+    { beats: [
+      { msg: 'You notice your footsteps have an echo. An extra step, slightly delayed.', style: 'msg-lore' },
+      { msg: 'The extra footstep is getting closer to being in sync with yours.', style: 'msg-warning' },
+      { msg: 'The footsteps are perfectly synchronized. Then they take one more step than you.', dice: { pass: [1,2], fail: [1,6] } },
+    ]},
+  ],
+  darkChains: [
+    { beats: [
+      { msg: 'Something warm presses against your back in the darkness.', style: 'msg-warning' },
+      { msg: 'It\'s still there. You feel it breathing. Slowly. Patiently.', style: 'msg-danger' },
+      { msg: 'It leans close to your ear and whispers something you almost understand.', dice: { pass: [1,4], fail: [1,10] } },
+    ]},
+    { beats: [
+      { msg: 'You feel fingers brush across the top of your head in the dark.', style: 'msg-warning' },
+      { msg: 'The fingers return. They trace the shape of your face. Gently.', style: 'msg-danger' },
+      { msg: 'They stop. You hear a wet, satisfied sound from somewhere above.', dice: { pass: [1,3], fail: [1,8] } },
+    ]},
+  ],
+  mild: [
+    'A cold draft carries the scent of brine and decay.',
+    'You step in something wet. You refuse to look down.',
+    'A rat scurries past, then stops and turns to stare at you.',
+    'The air tastes of copper and ozone.',
+    'Somewhere, a door slams. There are no doors nearby.',
+    'A distant, rhythmic chanting pulses at the edge of hearing.',
+    'A pipe organ drones from deep below — a single, sustained note.',
+    'A droplet of something dark falls from the ceiling onto your hand.',
+    'You hear wet footsteps echoing from somewhere above you.',
+  ],
+  darkMild: [
+    'Something brushes past your arm in the dark. You feel breath on your neck.',
+    'You hear breathing that is not your own. It stops when you hold yours.',
+    'Footsteps pace alongside you in the darkness, perfectly matching your stride.',
+    'Something clicks its teeth in the dark, very close to your ear.',
+    'You feel the floor tilt beneath you, though your feet say otherwise.',
+    'Your fingers brush something warm and wet on the wall. It flinches.',
+  ],
+  surreal: [
+    'The walls glisten with a mucus-like sheen that wasn\'t there before.',
+    'Your shadow does not move when you do. Then it catches up.',
+    'The stone beneath your feet is warm. It pulses.',
+    'The geometry of this passage is subtly, nauseatingly wrong.',
+    'You blink and the room seems to have shifted a few inches to the left.',
+    'You find scratches in the stone: "THEY SEE THROUGH THE WALLS".',
+    'The corridor behind you looks different. Longer.',
+    'You hear your own voice whispering from the next room.',
+  ],
+};
+
+// ── Event selection helpers ───────────────────────────────────
+// Pick an event from the unique pool that hasn't been seen yet.
+// Returns null if all unique events for this pool have been consumed.
+function pickUnseen(events, seenSet) {
+  const available = events.filter(e => {
+    const key = typeof e === 'string' ? e : e.beats[0].msg;
+    return !seenSet.has(key);
+  });
+  if (available.length === 0) return null;
+  const chosen = pick(available);
+  seenSet.add(typeof chosen === 'string' ? chosen : chosen.beats[0].msg);
+  return chosen;
+}
 
 // ── Utility ─────────────────────────────────────────────────
 function rng(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
@@ -749,6 +1439,7 @@ function initState(profId) {
     lastSanityEvent: prof.sanity,
     lastSpookyTurn: 0,
     activeEventChain: null,  // { beats: [...], currentBeat: 0, nextTurn: N }
+    seenSanityEvents: new Set(), // tracks unique events already shown (by message text)
     stairsFound: false,
     stairsX: -1,
     stairsY: -1,
@@ -966,32 +1657,40 @@ function carveCorridor(x1, y1, x2, y2) {
   }
 }
 
-// Find valid ghoul spawn positions: behind doors or in narrow corridors
+// Find valid ghoul spawn positions: corridor corners and bends
+// Ghouls wait just around corners so players walk past them
 function findGhoulSpawnPositions() {
   const positions = [];
   const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
-  for (let y = 1; y < HEIGHT - 1; y++) {
-    for (let x = 1; x < WIDTH - 1; x++) {
-      // Category A: corridor tile adjacent to a closed door (behind-door ambush)
-      if (state.map[y * WIDTH + x] === TILE.DOOR_CLOSED) {
-        for (const [dx, dy] of dirs) {
-          const nx = x + dx, ny = y + dy;
-          if (state.map[ny * WIDTH + nx] === TILE.CORRIDOR) {
-            positions.push({ x: nx, y: ny, priority: 2 });
-          }
+  const isOpen = (x, y) => {
+    const t = state.map[y * WIDTH + x];
+    return t === TILE.CORRIDOR || t === TILE.FLOOR || t === TILE.DOOR_OPEN || t === TILE.DOOR_CLOSED;
+  };
+  for (let y = 2; y < HEIGHT - 2; y++) {
+    for (let x = 2; x < WIDTH - 2; x++) {
+      if (state.map[y * WIDTH + x] !== TILE.CORRIDOR) continue;
+      // Count adjacent walls and open tiles in cardinal directions
+      let wallCount = 0;
+      let openDirs = [];
+      for (const [dx, dy] of dirs) {
+        if (state.map[(y + dy) * WIDTH + (x + dx)] === TILE.WALL) {
+          wallCount++;
+        } else if (isOpen(x + dx, y + dy)) {
+          openDirs.push([dx, dy]);
         }
       }
-    }
-  }
-  // Category B: narrow corridor tiles (2+ adjacent walls)
-  for (let y = 1; y < HEIGHT - 1; y++) {
-    for (let x = 1; x < WIDTH - 1; x++) {
-      if (state.map[y * WIDTH + x] !== TILE.CORRIDOR) continue;
-      let wallCount = 0;
-      for (const [dx, dy] of dirs) {
-        if (state.map[(y + dy) * WIDTH + (x + dx)] === TILE.WALL) wallCount++;
+      // Category A: L-shaped corner — exactly 2 walls and 2 open tiles at a right angle
+      // This is where the corridor bends, perfect for lurking just around the turn
+      if (wallCount === 2 && openDirs.length === 2) {
+        const [d1, d2] = openDirs;
+        // Check that the two open directions are perpendicular (L-bend, not straight)
+        if (d1[0] !== -d2[0] || d1[1] !== -d2[1]) {
+          positions.push({ x, y, priority: 2 });
+        }
       }
-      if (wallCount >= 2) {
+      // Category B: T-junctions — 1 wall and 3 open tiles
+      // Player might come from any of 3 directions, easy to be facing the wrong way
+      if (wallCount === 1 && openDirs.length === 3) {
         positions.push({ x, y, priority: 1 });
       }
     }
@@ -1033,11 +1732,11 @@ function spawnMonsters() {
     // Type-specific spawn positioning
     let mx, my;
     if (def.type === 'ghoul') {
-      // Ghouls lurk behind doors and in narrow corridors
+      // Ghouls lurk around corridor corners and bends
       const ghoulPositions = findGhoulSpawnPositions()
         .filter(p => !state.monsters.some(m => m.x === p.x && m.y === p.y));
       if (ghoulPositions.length > 0) {
-        // Prefer behind-door positions (priority 2) over narrow corridors
+        // Prefer L-bend corners (priority 2) over T-junctions
         ghoulPositions.sort((a, b) => b.priority - a.priority);
         const topPriority = ghoulPositions[0].priority;
         const best = ghoulPositions.filter(p => p.priority === topPriority);
@@ -1533,7 +2232,7 @@ function renderStats() {
 
 function renderMessages() {
   const log = document.getElementById('message-log');
-  const msgs = state.messages.slice(-20);
+  const msgs = state.messages.slice(-50);
   log.innerHTML = msgs.map(m => `<div class="${m.type || 'msg-info'}">${m.text}</div>`).join('');
   log.scrollTop = log.scrollHeight;
 }
@@ -1748,7 +2447,7 @@ function monsterKillSanRecovery(monster) {
 function monsterAttackPlayer(monster) {
   const mName = monsterDisplayName(monster);
 
-  // Ambush bonus: first strike deals double damage (only if encountered naturally, not if already engaged)
+  // Ambush bonus: first strike deals double damage (only if player wasn't facing the ambusher)
   if (monster.behavior === 'ambush' && monster.ambushNaturalTrigger && !monster.ambushStruck) {
     monster.ambushStruck = true;
     const savedAtk = monster.atk;
@@ -1889,7 +2588,7 @@ function assignStartingLoadout(profId) {
 
   // Starting reserve ammo (1 base + profession extra)
   const ammoItemKey = { '.45 ACP': 'ammo_45', '.38 Special': 'ammo_38', '12 gauge': 'ammo_12g' }[def.ammoType];
-  const baseMags = 1 + prof.extraAmmo;
+  const baseMags = 2 + prof.extraAmmo;
   for (let i = 0; i < baseMags; i++) {
     if (def.id === 'shotgun') {
       p.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: 4 });
@@ -2224,11 +2923,17 @@ function monsterTurn(monster) {
   if (behavior === 'ambush') {
     const adjacent = Math.abs(monster.x - px) <= 1 && Math.abs(monster.y - py) <= 1;
     if (adjacent) {
-      // Ambush strike: first hit deals bonus damage (only on natural encounter)
+      // Ambush strike: bonus damage only if player is NOT facing the monster
       if (!monster.ambushTriggered) {
         monster.ambushTriggered = true;
-        monster.ambushNaturalTrigger = true;  // Mark this as a natural ambush trigger
-        // Bonus handled in monsterAttackPlayer via ambushNaturalTrigger flag
+        // Check if monster is in the direction the player is facing
+        const angleToMonster = Math.atan2(monster.y - py, monster.x - px);
+        const facingAngle = DIR_ANGLES[state.player.facing];
+        const diff = Math.abs(angleDiff(angleToMonster, facingAngle));
+        // Player's forward facing is ~90° each side; ambush succeeds if monster is outside that
+        if (diff > Math.PI / 2) {
+          monster.ambushNaturalTrigger = true;  // Player wasn't facing this way — ambush!
+        }
       }
       monsterAttackPlayer(monster);
       return;
@@ -2358,23 +3063,21 @@ function processMonsters() {
 function checkSanityEvents() {
   const san = state.player.sanity;
   const maxSan = state.player.maxSanity;
-  for (const evt of SANITY_EVENTS) {
-    const threshold = Math.floor(maxSan * evt.pct);
-    if (san <= threshold && state.lastSanityEvent > threshold) {
+  const prof = state.player.profession;
+  const profSanity = PROFESSION_SANITY[prof] || PROFESSION_SANITY.detective;
+
+  // ── Threshold events — profession-specific, fire once per SAN crossing ──
+  for (const evt of profSanity.thresholds) {
+    const mark = Math.floor(maxSan * evt.pct);
+    if (san <= mark && state.lastSanityEvent > mark) {
       addMsg(evt.msg, evt.type);
     }
   }
   state.lastSanityEvent = san;
 
-  // Random hallucination at low sanity (cosmetic, no SAN cost)
-  if (san < state.player.maxSanity * 0.3 && Math.random() < 0.05) {
-    addMsg(pick([
-      'The floor writhes with invisible worms.',
-      'You smell something sweet and rotten.',
-      'For a moment, your hands seem to have too many fingers.',
-      'The darkness hums a lullaby in an alien tongue.',
-      'You feel certain you have been here before. Exactly here. Forever.',
-    ]), 'msg-sanity');
+  // ── Random hallucination at low sanity (cosmetic, no SAN cost) ──
+  if (san < maxSan * 0.3 && Math.random() < 0.05) {
+    addMsg(pick(profSanity.hallucinations), 'msg-sanity');
   }
 
   // ── Active event chain: deliver next beat if it's time ──
@@ -2410,63 +3113,30 @@ function checkSanityEvents() {
 
   state.lastSpookyTurn = state.turn;
 
-  // ── Multi-turn event chains (rarer, more impactful) ──
-  const EVENT_CHAINS = [
-    { beats: [
-      { msg: 'You hear something wet dragging itself along the corridor behind you.', style: 'msg-warning' },
-      { msg: 'The dragging sound is closer now.', style: 'msg-warning' },
-      { msg: 'The sound stops. The silence is worse.', dice: { pass: [0,1], fail: [1,6] } },
-    ]},
-    { beats: [
-      { msg: 'A faint scratching comes from behind the wall to your left.', style: 'msg-lore' },
-      { msg: 'The scratching has moved. It\'s following you.', style: 'msg-warning' },
-      { msg: 'It stops. A single, deliberate knock comes from the other side of the wall.', dice: { pass: [1,2], fail: [1,6] } },
-    ]},
-    { beats: [
-      { msg: 'You catch a whiff of perfume — floral, sweet, utterly out of place down here.', style: 'msg-lore' },
-      { msg: 'The scent is stronger now. It\'s coming from the dark ahead.', style: 'msg-warning' },
-      { msg: 'The perfume turns rancid. Underneath it: the stench of something long dead.', dice: { pass: [0,1], fail: [1,4] } },
-    ]},
-    { beats: [
-      { msg: 'A child\'s humming echoes from somewhere in the tunnels.', style: 'msg-warning' },
-      { msg: 'The humming is coming from the direction you just came from.', style: 'msg-warning' },
-      { msg: 'The humming stops mid-note. A small voice says: "Found you."', dice: { pass: [1,3], fail: [1,8] } },
-    ]},
-    { beats: [
-      { msg: 'You notice your footsteps have an echo. An extra step, slightly delayed.', style: 'msg-lore' },
-      { msg: 'The extra footstep is still there. It\'s getting closer to being in sync with yours.', style: 'msg-warning' },
-      { msg: 'The footsteps are perfectly synchronized now. Then they take one more step than you.', dice: { pass: [1,2], fail: [1,6] } },
-    ]},
-    { beats: [
-      { msg: 'A distant sound — rhythmic, like a heartbeat — pulses through the stone.', style: 'msg-lore' },
-      { msg: 'The pulse is louder. The walls vibrate faintly in time.', style: 'msg-warning' },
-      { msg: 'The pulsing stops. In the silence, you realize: it was your heartbeat, amplified a thousandfold.', dice: { pass: [0,1], fail: [1,4] } },
-    ]},
-    // Darkness-specific chains
-    ...(inDark ? [
-      { beats: [
-        { msg: 'Something warm presses against your back in the darkness.', style: 'msg-warning' },
-        { msg: 'It\'s still there. You feel it breathing. Slowly. Patiently.', style: 'msg-danger' },
-        { msg: 'It leans close to your ear and whispers something you almost understand.', dice: { pass: [1,4], fail: [1,10] } },
-      ]},
-      { beats: [
-        { msg: 'You feel fingers brush across the top of your head in the dark.', style: 'msg-warning' },
-        { msg: 'The fingers return. They trace the shape of your face. Gently.', style: 'msg-danger' },
-        { msg: 'They stop. You hear a wet, satisfied sound from somewhere above you.', dice: { pass: [1,3], fail: [1,8] } },
-      ]},
-    ] : []),
-  ];
+  // ── Get depth-specific unique events for current profession ──
+  const depthPool = (DEPTH_EVENTS[prof] || DEPTH_EVENTS.detective);
+  const dlvl = clamp(state.dlevel, 1, 8);
+  const depthEvents = depthPool[dlvl] || depthPool[1];
+  const seen = state.seenSanityEvents;
 
-  // 25% chance to start a chain instead of a one-shot event (30% in dark)
+  // ── Multi-turn event chains (25% chance, 30% in dark) ──
   const chainChance = inDark ? 0.30 : 0.25;
   if (Math.random() < chainChance) {
-    const chain = pick(EVENT_CHAINS);
+    // Try unique depth chain first, then shared fallback
+    const uniqueChains = [...depthEvents.chains,
+      ...(inDark ? depthEvents.darkChains : [])];
+    let chain = pickUnseen(uniqueChains, seen);
+    if (!chain) {
+      // Unique chains exhausted — fall back to shared pool
+      const sharedPool = [...SHARED_EVENTS.chains,
+        ...(inDark ? SHARED_EVENTS.darkChains : [])];
+      chain = pick(sharedPool);
+    }
     state.activeEventChain = {
       beats: chain.beats,
       currentBeat: 0,
-      nextTurn: state.turn, // first beat plays immediately
+      nextTurn: state.turn,
     };
-    // Deliver first beat now
     const firstBeat = chain.beats[0];
     addMsg(firstBeat.msg, firstBeat.style || 'msg-lore');
     state.activeEventChain.currentBeat = 1;
@@ -2474,58 +3144,30 @@ function checkSanityEvents() {
     return;
   }
 
-  // ── Single-shot events (existing system) ──
-  // Mild events (most common) — SAN roll: 0/1d4
-  const mildEvents = [
-    'A cold draft carries the scent of brine and decay.',
-    'You hear wet footsteps echoing from somewhere... above you?',
-    'Your lantern flickers. Something moved in the dark.',
-    'You step in something wet. You refuse to look down.',
-    'A rat scurries past, then stops and turns to stare at you.',
-    'The air tastes of copper and ozone.',
-    'Somewhere, a door slams. There are no doors nearby.',
-    'A droplet of something dark falls from the ceiling onto your hand.',
-    'A distant, rhythmic chanting pulses at the edge of hearing.',
-    'A pipe organ drones from deep below — a single, sustained note.',
-  ];
-  // Extra events when in darkness
-  if (inDark) {
-    mildEvents.push(
-      'Something brushes past your arm in the dark. You feel breath on your neck.',
-      'You hear breathing that is not your own. It stops when you hold yours.',
-      'Your fingers brush something warm and wet on the wall. It flinches.',
-      'Footsteps pace alongside you in the darkness, perfectly matching your stride.',
-      'Something clicks its teeth in the dark, very close to your ear.',
-      'You feel the floor tilt beneath you, though your feet say otherwise.',
-    );
-  }
-  // Surreal events (deeper / lower sanity) — SAN roll: 1d4/1d8
-  const surealEvents = [
-    'The walls glisten with a mucus-like sheen that wasn\'t there before.',
-    'The corridor behind you looks... different. Longer.',
-    'Your shadow does not move when you do. Then it catches up.',
-    'The stone beneath your feet is warm. It pulses.',
-    'You hear your own voice whispering from the next room.',
-    'The geometry of this passage is subtly, nauseatingly wrong.',
-    'You blink and the room seems to have shifted a few inches to the left.',
-    'You find scratches in the stone: "THEY SEE THROUGH THE WALLS".',
-  ];
-
-  // Deeper levels, lower sanity, and darkness increase chance of surreal events
+  // ── Single-shot events ──
   const darkBonus = inDark ? 0.2 : 0;
-  const surealChance = Math.min(0.75, 0.1 + state.dlevel * 0.08 + (100 - san) * 0.003 + darkBonus);
-  const isSureal = Math.random() < surealChance;
-  const event = isSureal ? pick(surealEvents) : pick(mildEvents);
-  const dice = isSureal ? { pass: [1,4], fail: [1,8] } : { pass: [0,0], fail: [1,4] };
+  const surrealChance = Math.min(0.75, 0.1 + state.dlevel * 0.08 + (100 - san) * 0.003 + darkBonus);
+  const isSurreal = Math.random() < surrealChance;
 
-  if (isSureal) {
-    rollSanity(dice, event);
+  if (isSurreal) {
+    // Try unique surreal, fall back to shared
+    let event = pickUnseen(depthEvents.surreal, seen);
+    if (!event) event = pick(SHARED_EVENTS.surreal);
+    rollSanity({ pass: [1,4], fail: [1,8] }, event);
   } else {
+    // Try unique mild, fall back to shared
+    const uniqueMild = [...depthEvents.mild,
+      ...(inDark ? depthEvents.darkMild : [])];
+    let event = pickUnseen(uniqueMild, seen);
+    if (!event) {
+      const sharedMild = [...SHARED_EVENTS.mild,
+        ...(inDark ? SHARED_EVENTS.darkMild : [])];
+      event = pick(sharedMild);
+    }
     // Mild events: roll SAN quietly — show flavor on pass, SAN loss on fail
-    const san = state.player.sanity;
+    const curSan = state.player.sanity;
     const roll = rng(1, 100);
-    if (roll <= san) {
-      // Passed — just atmosphere, no SAN loss
+    if (roll <= curSan) {
       addMsg(event, 'msg-lore');
     } else {
       const sanLoss = rng(1, 4);
@@ -4562,6 +5204,62 @@ function toggleMuteAudio() {
   }
   return audio.muted;
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  RESIZE HANDLE (draggable divider between map and message log)
+// ═══════════════════════════════════════════════════════════════
+(function initResizeHandle() {
+  const display = document.getElementById('display');
+  const handle = document.getElementById('resize-handle');
+  const mainArea = document.getElementById('main-area');
+
+  // Set initial display width based on map columns.
+  // Measure one character's rendered width, then multiply by WIDTH.
+  function setDisplayWidth() {
+    const measurer = document.createElement('span');
+    measurer.style.cssText = 'font-family:"Courier New",monospace;font-size:13px;letter-spacing:1px;white-space:pre;position:absolute;visibility:hidden;';
+    measurer.textContent = 'X';
+    document.body.appendChild(measurer);
+    const charW = measurer.getBoundingClientRect().width;
+    document.body.removeChild(measurer);
+    // 80 columns + padding (4px each side) + border (1px each side)
+    const totalW = Math.ceil(charW * WIDTH) + 10;
+    display.style.width = totalW + 'px';
+  }
+  setDisplayWidth();
+
+  // Draggable resize — adjusts message log width
+  const msgLog = document.getElementById('message-log');
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
+
+  handle.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    dragging = true;
+    startX = e.clientX;
+    startW = msgLog.getBoundingClientRect().width;
+    handle.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    // Dragging right shrinks the log, dragging left grows it
+    const dx = e.clientX - startX;
+    const newW = Math.max(120, startW - dx);
+    msgLog.style.width = newW + 'px';
+  });
+
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
 
 // ═══════════════════════════════════════════════════════════════
 //  INIT
