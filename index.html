@@ -2509,7 +2509,7 @@ function recalcStats() {
   p.def = p.baseDef + (p.armor ? p.armor.def : 0);
 }
 
-const MAX_INVENTORY = 10;
+const MAX_INVENTORY = 7;
 
 function inventoryUsed() {
   const p = state.player;
@@ -2598,7 +2598,7 @@ function assignStartingLoadout(profId) {
 
   // Starting reserve ammo (1 base + profession extra)
   const ammoItemKey = AMMO_TYPE_MAP[def.ammoType];
-  const baseMags = 2 + prof.extraAmmo;
+  const baseMags = 1 + prof.extraAmmo;
   for (let i = 0; i < baseMags; i++) {
     if (def.id === 'shotgun') {
       p.inventory.push({ ...ITEM_DEFS[ammoItemKey], amount: 4 });
